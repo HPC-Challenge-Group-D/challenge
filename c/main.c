@@ -30,39 +30,63 @@
 #include <stdlib.h>
 #include <math.h>
 
-#ifndef NX
-#define NX 1024
-#endif
-#ifndef NY
-#define NY 16
-#endif
-#define NMAX 200000
-#define EPS 1e-5
+#include <mpi.h>
+#include "proc_info.h"
 
-int solver(double *, double *, int, int, double, int);
+int solver(double *, double *, int, int, double, int, struct proc_info *);
 
 int main()
 {
+    /*Setup*/
+    MPI_Init(NULL, NULL);
+    printf("Hello World\n");
+    struct proc_info proc;
+    MPI_Comm_size(MPI_COMM_WORLD, &proc.size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &proc.rank);
+
+    /*WARNING: Current setup only works if size is a power of 2*/
+    /*Set-up proper distribution of the grid among a 2D process arangement*/
+    proc.dims[0] = proc.size/2;
+    proc.dims[1] = proc.size/2;
+
+    int periods[2] = {1,1};
+    MPI_Cart_create(MPI_COMM_WORLD, 2, proc.dims, periods, 1, &proc.cartcomm);
+    
+    MPI_Cart_shift(proc.cartcomm, 0, 1, &proc.neighbors[NORTH], &proc.neighbors[SOUTH]);
+    MPI_Cart_shift(proc.cartcomm, 1, 1, &proc.neighbors[WEST], &proc.neighbors[EAST]);
+
+    MPI_Cart_coords(proc.cartcomm, proc.rank, 2, proc.coords);
+
+    /*Local size of the grid; Additional rows and columns for boundary points*/
+    size_t local_nx = NX/proc.dims[1] + 2;
+    size_t local_ny = NY/proc.dims[0] + 2;
+
+    /*MPI Datatypes for the communication of the boundary points inbetween processes*/
+    MPI_Type_vector(local_nx-2, 1, 1, MPI_DOUBLE, &proc.row);
+    MPI_Type_vector(local_ny-2, 1, local_nx, MPI_DOUBLE, &proc.column);
+
     double *v;
     double *f;
 
     // Allocate memory
-    v = (double *) malloc(NX * NY * sizeof(double));
-    f = (double *) malloc(NX * NY * sizeof(double));
+    v = (double *) malloc(local_nx * local_ny * sizeof(double));
+    f = (double *) malloc((local_nx-2) * (local_ny-2) * sizeof(double));
 
     // Initialise input
-    for (int iy = 0; iy < NY; iy++)
-        for (int ix = 0; ix < NX; ix++)
+    for (int iy = 1; iy < local_ny-1; iy++)
+        for (int ix = 1; ix < local_nx-1; ix++)
         {
-            v[NX*iy+ix] = 0.0;
+            v[local_nx*iy+ix] = 0.0;
 
-            const double x = 2.0 * ix / (NX - 1.0) - 1.0;
-            const double y = 2.0 * iy / (NY - 1.0) - 1.0;
-            f[NX*iy+ix] = sin(x + y);
+            const double x = 2.0 * (ix-1+proc.coords[1]*local_nx) / (NX - 1.0) - 1.0;
+            const double y = 2.0 * (iy-1+proc.coords[0]*local_ny) / (NY - 1.0) - 1.0;
+            f[local_nx*iy+ix] = sin(x + y);
         }
 
+    printf("Setup complete\n");
+    MPI_Barrier(proc.cartcomm);
     // Call solver
-    solver(v, f, NX, NY, EPS, NMAX);
+    solver(v, f, local_nx, local_ny, EPS, NMAX, &proc);
 
     //for (int iy = 0; iy < NY; iy++)
     //    for (int ix = 0; ix < NX; ix++)
@@ -71,6 +95,8 @@ int main()
     // Clean-up
     free(v);
     free(f);
+
+    MPI_Finalize();
 
     return 0;
 }
