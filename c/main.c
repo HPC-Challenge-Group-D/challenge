@@ -63,7 +63,12 @@ int main()
 
     /*MPI Datatypes for the communication of the boundary points inbetween processes*/
     MPI_Type_vector(local_nx-2, 1, 1, MPI_DOUBLE, &proc.row);
+    MPI_Type_commit(&proc.row);
+
     MPI_Type_vector(local_ny-2, 1, local_nx, MPI_DOUBLE, &proc.column);
+    MPI_Type_commit(&proc.column);
+
+
 
     double *v;
     double *f;
@@ -96,6 +101,8 @@ int main()
     free(v);
     free(f);
 
+    MPI_Type_free(&proc.row);
+    MPI_Type_free(&proc.column);
     MPI_Finalize();
 
     return 0;

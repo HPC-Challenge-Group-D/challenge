@@ -95,13 +95,13 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         /*Communication Phase*/
         MPI_Status stat;
 
-        MPI_Sendrecv(&v[nx*(ny-2)+1], 1, proc->row, proc->neighbors[NORTH], MPI_ANY_TAG, &v[1], 1, proc->row, proc->neighbors[SOUTH], MPI_ANY_TAG, proc->cartcomm, &stat);
+        MPI_Sendrecv(&v[nx*(ny-2)+1], 1, proc->row, proc->neighbors[NORTH], 0, &v[1], 1, proc->row, proc->neighbors[SOUTH], 0, proc->cartcomm, &stat);
 
-        MPI_Sendrecv(&v[nx+1], 1, proc->row, proc->neighbors[SOUTH], MPI_ANY_TAG, &v[nx*(ny-1) + 1], 1, proc->row, proc->neighbors[NORTH], MPI_ANY_TAG, proc->cartcomm, &stat);
+        MPI_Sendrecv(&v[nx+1], 1, proc->row, proc->neighbors[SOUTH], 0, &v[nx*(ny-1) + 1], 1, proc->row, proc->neighbors[NORTH], 0, proc->cartcomm, &stat);
 
-        MPI_Sendrecv(&v[nx*2 - 2], 1, proc->column, proc->neighbors[EAST], MPI_ANY_TAG, &v[nx], 1, proc->column, proc->neighbors[WEST], MPI_ANY_TAG, proc->cartcomm, &stat);
+        MPI_Sendrecv(&v[nx*2 - 2], 1, proc->column, proc->neighbors[EAST], 0, &v[nx], 1, proc->column, proc->neighbors[WEST], 0, proc->cartcomm, &stat);
 
-        MPI_Sendrecv(&v[nx+1], 1, proc->column, proc->neighbors[WEST], MPI_ANY_TAG, &v[nx*2 - 1], 1, proc->column, proc->neighbors[EAST], MPI_ANY_TAG, proc->cartcomm, &stat);
+        MPI_Sendrecv(&v[nx+1], 1, proc->column, proc->neighbors[WEST], 0, &v[nx*2 - 1], 1, proc->column, proc->neighbors[EAST], 0, proc->cartcomm, &stat);
 
         /*End of communication phase*/
 
