@@ -168,6 +168,11 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         w /= (NX * NY);
         e /= w;
         
+        if(proc->rank == 0)
+        {
+            if ((n % 10) == 0)
+                printf("%5d, %0.4e\n", n, e);
+        }
         //if ((n % 10) == 0)
         //    printf("%5d, %0.4e\n", n, e);
 
@@ -179,7 +184,7 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
     if(proc->rank == 0)
     {
         if (e < eps)
-            printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, nx, ny, e);
+            printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, NX, NY, e);
         else
             printf("ERROR: Failed to converge\n");
     }

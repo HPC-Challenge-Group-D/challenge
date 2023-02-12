@@ -39,20 +39,19 @@ int main()
 {
     /*Setup*/
     MPI_Init(NULL, NULL);
-    printf("Hello World\n");
     struct proc_info proc;
     MPI_Comm_size(MPI_COMM_WORLD, &proc.size);
     MPI_Comm_rank(MPI_COMM_WORLD, &proc.rank);
 
     /*WARNING: Current setup only works if size is a power of 2*/
     /*Set-up proper distribution of the grid among a 2D process arangement*/
-    proc.dims[0] = proc.size/2;
-    proc.dims[1] = proc.size/2;
+    proc.dims[0] = ceil(proc.size/2.0);
+    proc.dims[1] = ceil(proc.size/2.0);
 
     int periods[2] = {1,1};
     MPI_Cart_create(MPI_COMM_WORLD, 2, proc.dims, periods, 1, &proc.cartcomm);
     
-    MPI_Cart_shift(proc.cartcomm, 0, 1, &proc.neighbors[NORTH], &proc.neighbors[SOUTH]);
+    MPI_Cart_shift(proc.cartcomm, 0, 1, &proc.neighbors[SOUTH], &proc.neighbors[NORTH]);
     MPI_Cart_shift(proc.cartcomm, 1, 1, &proc.neighbors[WEST], &proc.neighbors[EAST]);
 
     MPI_Cart_coords(proc.cartcomm, proc.rank, 2, proc.coords);
@@ -69,13 +68,12 @@ int main()
     MPI_Type_commit(&proc.column);
 
 
-
     double *v;
     double *f;
 
     // Allocate memory
     v = (double *) malloc(local_nx * local_ny * sizeof(double));
-    f = (double *) malloc((local_nx-2) * (local_ny-2) * sizeof(double));
+    f = (double *) malloc((local_nx) * (local_ny) * sizeof(double));
 
     // Initialise input
     for (int iy = 1; iy < local_ny-1; iy++)
@@ -88,8 +86,6 @@ int main()
             f[local_nx*iy+ix] = sin(x + y);
         }
 
-    printf("Setup complete\n");
-    MPI_Barrier(proc.cartcomm);
     // Call solver
     solver(v, f, local_nx, local_ny, EPS, NMAX, &proc);
 
