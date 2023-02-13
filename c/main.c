@@ -82,8 +82,8 @@ int main()
     f = (double *) malloc(local_nx * local_ny * sizeof(double));
 
     // Initialise input
-    for (int iy = 1; iy < local_ny-1; iy++)
-        for (int ix = 1; ix < local_nx-1; ix++)
+    for (int iy = 0; iy < local_ny; iy++)
+        for (int ix = 0; ix < local_nx; ix++)
         {
             v[local_nx*iy+ix] = 0.0;
 
