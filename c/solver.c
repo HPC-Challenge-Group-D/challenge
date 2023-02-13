@@ -43,10 +43,6 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
 
     vp = (double *) malloc(nx * ny * sizeof(double));
 
-    /*Determine the starting index of the current process*/
-    int ix_start = 1, ix_end = nx-1;
-    int iy_start = 1, iy_end = ny-1;
-
     while ((e > eps) && (n < nmax))
     {
         e = 0.0;
@@ -99,11 +95,11 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
 
         /*End of communication phase*/
 
-        /*Update the boundary (On applicable processes)*/
+        /*Compute weight on the boundary*/
         
         if (proc->coords[0] == 0)
         {
-            for (int ix = ix_start; ix < ix_end; ix++)
+            for (int ix = 1; ix < (nx-1); ix++)
             {
                  //v[nx*1      + ix] = v[nx*0     + ix];
                  w += fabs(v[nx*0 + ix]);
@@ -112,7 +108,7 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
 
         if(proc->coords[0] == proc->dims[0]-1)
         {
-             for (int ix = ix_start; ix < ix_end; ix++)
+             for (int ix = 1; ix < (nx-1); ix++)
             {
                  //v[nx*(ny-2) + ix] = v[nx*(ny-1)      + ix];
                  w += fabs(v[nx*(ny-1) + ix]);
@@ -121,7 +117,7 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
 
         if(proc->coords[1] == 0)
        {
-            for (int iy = iy_start; iy < iy_end; iy++)
+            for (int iy = 1; iy < (ny-1); iy++)
             {
                 //v[nx*iy + 1]      = v[nx*iy + 0];
                 w += fabs(v[nx*iy + 0]);
@@ -130,7 +126,7 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
 
         if(proc->coords[1] == proc->dims[1]-1)
        {
-            for (int iy = iy_start; iy < iy_end; iy++)
+            for (int iy = 1; iy < (ny-1); iy++)
             {
                  //v[nx*iy + (nx-2)] = v[nx*iy + (nx-1)];
                 w +=  fabs(v[nx*iy + (nx-1)]);

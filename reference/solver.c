@@ -91,7 +91,8 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
         e /= w;
         
         //if ((n % 10) == 0)
-        //    printf("%5d, %0.4e\n", n, e);
+           //printf("%5d, %0.4e\n", n, e);
+
 
         n++;
     }
