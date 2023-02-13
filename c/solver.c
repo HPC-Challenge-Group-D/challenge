@@ -46,25 +46,16 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
     /*Determine the starting index of the current process*/
     int ix_start = 1, ix_end = nx-1;
     int iy_start = 1, iy_end = ny-1;
-    if (proc->coords[0] == 0)
-        iy_start++;
-
-    if(proc->coords[0] == proc->dims[0]-1)
-        iy_end--;
-
-    if(proc->coords[1] == 0)
-        ix_start++;
-
-    if(proc->coords[1] == proc->dims[1]-1)
-        ix_end--;
 
     while ((e > eps) && (n < nmax))
     {
         e = 0.0;
 
-        for( int ix = ix_start; ix < ix_end; ix++ )
+        /*Computation Phase*/
+
+        for( int ix = 1; ix < (nx-1); ix++ )
         {
-            for (int iy = iy_start; iy < iy_end; iy++)
+            for (int iy = 1; iy < (ny-1); iy++)
             {
                 double d;
 
@@ -77,13 +68,11 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
             }
         }
 
-        MPI_Allreduce(MPI_IN_PLACE, &e, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-        
         // Update v and compute error as well as error weight factor
 
         double w = 0.0;
 
-        for (int ix = ix_start; ix < ix_end; ix++)
+        for (int ix = 1; ix < (nx-1); ix++)
         {
             for (int iy = 1; iy < (ny-1); iy++)
             {
@@ -92,19 +81,23 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
             }
         }
 
+        /*End of computation phase*/
+
         /*Communication Phase*/
-        MPI_Status stat;
+ 
+        MPI_Sendrecv(&v[nx*(ny-2)+1], 1, proc->row, proc->neighbors[NORTH], 0,
+             &v[1], 1, proc->row, proc->neighbors[SOUTH], 0, proc->cartcomm, MPI_STATUS_IGNORE);
 
-        MPI_Sendrecv(&v[nx*(ny-2)+1], 1, proc->row, proc->neighbors[NORTH], 0, &v[1], 1, proc->row, proc->neighbors[SOUTH], 0, proc->cartcomm, &stat);
+        MPI_Sendrecv(&v[nx*1 + 1], 1, proc->row, proc->neighbors[SOUTH], 0,
+             &v[nx*(ny-1) + 1], 1, proc->row, proc->neighbors[NORTH], 0, proc->cartcomm, MPI_STATUS_IGNORE);
 
-        MPI_Sendrecv(&v[nx+1], 1, proc->row, proc->neighbors[SOUTH], 0, &v[nx*(ny-1) + 1], 1, proc->row, proc->neighbors[NORTH], 0, proc->cartcomm, &stat);
+        MPI_Sendrecv(&v[nx*2 - 2], 1, proc->column, proc->neighbors[EAST], 0, 
+            &v[nx], 1, proc->column, proc->neighbors[WEST], 0, proc->cartcomm, MPI_STATUS_IGNORE);
 
-        MPI_Sendrecv(&v[nx*2 - 2], 1, proc->column, proc->neighbors[EAST], 0, &v[nx], 1, proc->column, proc->neighbors[WEST], 0, proc->cartcomm, &stat);
-
-        MPI_Sendrecv(&v[nx+1], 1, proc->column, proc->neighbors[WEST], 0, &v[nx*2 - 1], 1, proc->column, proc->neighbors[EAST], 0, proc->cartcomm, &stat);
+        MPI_Sendrecv(&v[nx+1], 1, proc->column, proc->neighbors[WEST], 0,
+             &v[nx*2 - 1], 1, proc->column, proc->neighbors[EAST], 0, proc->cartcomm, MPI_STATUS_IGNORE);
 
         /*End of communication phase*/
-
 
         /*Update the boundary (On applicable processes)*/
         
@@ -112,8 +105,8 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         {
             for (int ix = ix_start; ix < ix_end; ix++)
             {
-                 v[nx*1      + ix] = v[nx*0     + ix];
-                 w += fabs(v[nx*1+ix]);
+                 //v[nx*1      + ix] = v[nx*0     + ix];
+                 w += fabs(v[nx*0 + ix]);
             }
         }
 
@@ -121,8 +114,8 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         {
              for (int ix = ix_start; ix < ix_end; ix++)
             {
-                 v[nx*(ny-2) + ix] = v[nx*(ny-1)      + ix];
-                 w += fabs(v[nx*(ny-2)+ix]);
+                 //v[nx*(ny-2) + ix] = v[nx*(ny-1)      + ix];
+                 w += fabs(v[nx*(ny-1) + ix]);
             }
         }
 
@@ -130,8 +123,8 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
        {
             for (int iy = iy_start; iy < iy_end; iy++)
             {
-                v[nx*iy + 1]      = v[nx*iy + 0];
-                w += fabs(v[nx*iy+1]);
+                //v[nx*iy + 1]      = v[nx*iy + 0];
+                w += fabs(v[nx*iy + 0]);
             }
        }
 
@@ -139,8 +132,8 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
        {
             for (int iy = iy_start; iy < iy_end; iy++)
             {
-                 v[nx*iy + (nx-2)] = v[nx*iy + (nx-1)];
-                w +=  fabs(v[nx*iy+(nx-2)]);
+                 //v[nx*iy + (nx-2)] = v[nx*iy + (nx-1)];
+                w +=  fabs(v[nx*iy + (nx-1)]);
             }
        }
 
@@ -163,16 +156,19 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         }
         */
 
-        MPI_Allreduce(MPI_IN_PLACE, &w, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        //TODO: Reduce to 1 reduction operation
+        MPI_Allreduce(MPI_IN_PLACE, &e, 1, MPI_DOUBLE, MPI_MAX, proc->cartcomm);
+        MPI_Allreduce(MPI_IN_PLACE, &w, 1, MPI_DOUBLE, MPI_SUM, proc->cartcomm);
 
         w /= (NX * NY);
         e /= w;
         
+        /*
         if(proc->rank == 0)
         {
             if ((n % 10) == 0)
                 printf("%5d, %0.4e\n", n, e);
-        }
+        }*/
         //if ((n % 10) == 0)
         //    printf("%5d, %0.4e\n", n, e);
 
