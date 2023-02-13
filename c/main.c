@@ -43,7 +43,8 @@ int main()
 
     MPI_Comm_size(MPI_COMM_WORLD, &proc.size);
 
-    /*WARNING: Current setup only works if size is a power of 2*/
+    //TODO: Find proper distribution considering the grid size ...
+    /*WARNING: Current setup only works if size iis a square*/
     /*Set-up proper distribution of the grid among a 2D process arangement*/
     proc.dims[0] = (proc.size/sqrt(proc.size));
     proc.dims[1] = (proc.size/sqrt(proc.size));
@@ -58,6 +59,7 @@ int main()
 
     MPI_Cart_coords(proc.cartcomm, proc.rank, 2, proc.coords);
 
+    //TODO: Compute extra points for last processes if number is not divisable ... 
     /*Local size of the grid; Additional rows and columns for boundary points*/
     size_t local_nx = ((NX-2)/proc.dims[1]) + 2;
     size_t local_ny = ((NY-2)/proc.dims[0]) + 2;
@@ -71,7 +73,6 @@ int main()
 
     MPI_Type_vector(local_ny-2, 1, local_nx, MPI_DOUBLE, &proc.column);
     MPI_Type_commit(&proc.column);
-
 
     double *v;
     double *f;
