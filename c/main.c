@@ -35,19 +35,19 @@
 
 int solver(double *, double *, int, int, double, int, struct proc_info *);
 
+int copmuteOptimalPartitioning(int nx, int ny, int size);
+
 int main()
 {
-    /*Setup*/
+    /*Setup Phase*/
     MPI_Init(NULL, NULL);
     struct proc_info proc;
 
     MPI_Comm_size(MPI_COMM_WORLD, &proc.size);
 
-    //TODO: Find proper distribution considering the grid size ...
-    /*WARNING: Current setup only works if size iis a square*/
     /*Set-up proper distribution of the grid among a 2D process arangement*/
-    proc.dims[0] = (proc.size/sqrt(proc.size));
-    proc.dims[1] = (proc.size/sqrt(proc.size));
+    proc.dims[1] = copmuteOptimalPartitioning(NX,NY, proc.size);
+    proc.dims[0] = proc.size/proc.dims[1];
 
     int periods[2] = {1,1};
     MPI_Cart_create(MPI_COMM_WORLD, 2, proc.dims, periods, 1, &proc.cartcomm);
@@ -59,7 +59,6 @@ int main()
 
     MPI_Cart_coords(proc.cartcomm, proc.rank, 2, proc.coords);
 
-    //TODO: Compute extra points for last processes if number is not divisable ... 
     /*Local size of the grid; Additional rows and columns for boundary points*/
     size_t local_nx = ((NX-2)/proc.dims[1]) + 2;
     size_t local_ny = ((NY-2)/proc.dims[0]) + 2;
@@ -67,12 +66,25 @@ int main()
     int y_offset = (local_ny - 2) * proc.coords[0];
     int x_offset = (local_nx - 2) * proc.coords[1];
 
+    //If the gridpoints are not divisible my the processor dimension the last processor on the axis will recieve the remaining points.
+    if (proc.coords[0] == proc.dims[0] - 1)
+    {
+        local_ny += ((NY - 2) % proc.dims[0]);
+    }
+
+    if (proc.coords[1] == proc.dims[1] - 1)
+    {
+        local_nx += ((NX - 2) % proc.dims[1]);
+    }
+
     /*MPI Datatypes for the communication of the boundary points inbetween processes*/
     MPI_Type_vector(local_nx-2, 1, 1, MPI_DOUBLE, &proc.row);
     MPI_Type_commit(&proc.row);
 
     MPI_Type_vector(local_ny-2, 1, local_nx, MPI_DOUBLE, &proc.column);
     MPI_Type_commit(&proc.column);
+
+    /*End of setup phase*/
 
     double *v;
     double *f;
@@ -108,4 +120,26 @@ int main()
     MPI_Finalize();
 
     return 0;
+}
+
+int copmuteOptimalPartitioning(int nx, int ny, int size)
+{
+    const double xy_ratio = ((double) nx)/ny; 
+    double best_ratio_distance = INFINITY;
+    int best_procX = 0, best_procY = 0;
+    for (int d = 1; d <= size; d++)
+    {
+        if(size%d == 0)
+        {
+            const int div2 = size/d;
+            const double ratio = ((double )d) / div2;
+            if (fabs(ratio - xy_ratio) < best_ratio_distance)  
+            {
+                best_procX = d;
+                best_procY = div2;
+                best_ratio_distance = fabs(ratio - xy_ratio);
+            }
+        }
+    }
+    return best_procX;
 }
