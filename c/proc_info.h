@@ -1,11 +1,22 @@
-#pragma once 
+/*
+ * Header proc_info.h
+ * Defines a struct for storing process information
+ * Also the system parameters for the execution are set here
+ */
+#pragma once
 #include <mpi.h>
 
+/*
+ * Define the directions for the MPI Cartesian communication
+ */
 #define NORTH 0
 #define EAST 1
 #define SOUTH 2
 #define WEST 3
 
+/*
+ * Define execution parameters
+ */
 #ifndef NX
 #define NX 1024
 #endif
@@ -15,6 +26,9 @@
 #define NMAX 200000
 #define EPS 1e-5
 
+/*
+ * Process info struct storing all relevant information for the current process.
+ */
 struct proc_info {
     int rank;   /*Rank of the current process*/
     int size;   /*Number of processes in total*/

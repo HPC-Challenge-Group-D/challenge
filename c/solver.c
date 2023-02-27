@@ -48,10 +48,9 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         e = 0.0;
 
         /*Computation Phase*/
-
-        for( int ix = 1; ix < (nx-1); ix++ )
+        for (int iy = 1; iy < (ny-1); iy++)
         {
-            for (int iy = 1; iy < (ny-1); iy++)
+            for( int ix = 1; ix < (nx-1); ix++ )
             {
                 double d;
 
@@ -68,9 +67,9 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
 
         double w = 0.0;
 
-        for (int ix = 1; ix < (nx-1); ix++)
+        for (int iy = 1; iy < (ny-1); iy++)
         {
-            for (int iy = 1; iy < (ny-1); iy++)
+            for (int ix = 1; ix < (nx-1); ix++)
             {
                 v[nx*iy+ix] = vp[nx*iy+ix];
                 w += fabs(v[nx*iy+ix]);
