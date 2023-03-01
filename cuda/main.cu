@@ -28,6 +28,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <math.h>
 
 #ifndef NX
@@ -61,9 +62,19 @@ int main()
             f[NX*iy+ix] = sin(x + y);
         }
 
+    /*Start timer*/
+    struct timespec ts;
+    double start, end;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    start = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
 
     // Call solver
     solver(v, f, NX, NY, EPS, NMAX);
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    end = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
+    printf("Execution time: %f s\n", end-start);
 
     //for (int iy = 0; iy < NY; iy++)
     //    for (int ix = 0; ix < NX; ix++)

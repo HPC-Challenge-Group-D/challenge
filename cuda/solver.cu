@@ -42,6 +42,8 @@ TODO: This implementation should give a rough baseline on the implementation in 
  * Furthermore, more care can be placed on the boundary value placement and synchronisation.
  */
 
+void deviceReduce(double *in, double* out, int N);
+void deviceReduceMax(double *in, double* out, int N);
 
 /*
  * Kernel to perform the Jacobi Step
@@ -63,6 +65,7 @@ __global__ void jacobiStepKernel(double *vp, double *v, double *f, int nx, int n
 
     e[tid] = 0.0;
     w[tid] = 0.0;
+
 
     if(ixx < 1)
         ixx+=sx;
@@ -87,7 +90,6 @@ __global__ void jacobiStepKernel(double *vp, double *v, double *f, int nx, int n
             e[tid] = (d > e[tid]) ? d : e[tid];
         }
     }
-
     /*
      * Copy the points on to the original array
      */
@@ -110,7 +112,6 @@ __global__ void updateBoundaryKernel(double *v, int nx, int ny, double *w)
 {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     int stride = blockDim.x * gridDim.x;
-
 
     /*
      * Update the boundary points
@@ -137,7 +138,7 @@ __global__ void updateBoundaryKernel(double *v, int nx, int ny, double *w)
 int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
 {
     int n = 0;
-    double e = 2. * eps;
+    //double e = 2. * eps;
     double *vp;
 
     double *w_device, *e_device;
@@ -151,8 +152,8 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
     cudaDeviceProp props;
     cudaGetDeviceProperties(&props, deviceId);
 
-    threadsPerBlock = dim3(4,4);
-    numberOfBlocks = dim3(2, 2);
+    threadsPerBlock = dim3(props.warpSize, 1);
+    numberOfBlocks = dim3(props.multiProcessorCount, 1);
 
     printf("The program is running on a GPU with %d warps, %d MPs\n", props.warpSize, props.multiProcessorCount);
 
@@ -163,31 +164,33 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
     cudaMallocManaged(&w_device, num_gpu_threads*sizeof(double));
     cudaMallocManaged(&e_device, num_gpu_threads*sizeof(double));
 
-    cudaError_t errSync;
-    cudaError_t asyncErr;
-    
+    cudaMemPrefetchAsync(w_device, num_gpu_threads*sizeof(double), deviceId);
+    cudaMemPrefetchAsync(e_device, num_gpu_threads*sizeof(double), deviceId);
     cudaMemPrefetchAsync(v, nx*ny*sizeof(double), deviceId);
     cudaMemPrefetchAsync(vp, nx*ny*sizeof(double), deviceId);
     cudaMemPrefetchAsync(f, nx*ny*sizeof(double), deviceId);
 
-    //e > eps has been removed in order to speed up computation
-    while ((e > eps) && (n < nmax))
+
+    double *e, *w;
+    cudaMallocManaged(&w, sizeof(double));
+    cudaMallocManaged(&e, sizeof(double));
+    *e = 2. * eps;
+
+    while ((e[0] > eps) && (n < nmax))
     {
-        cudaMemPrefetchAsync(w_device, num_gpu_threads*sizeof(double), deviceId);
-        cudaMemPrefetchAsync(e_device, num_gpu_threads*sizeof(double), deviceId);
+
 
         jacobiStepKernel<<<threadsPerBlock, numberOfBlocks>>>(vp, v, f, nx, ny, e_device, w_device);
         cudaDeviceSynchronize();
         updateBoundaryKernel<<<threadsPerBlock.x*threadsPerBlock.y, numberOfBlocks.x*numberOfBlocks.y>>>(v, nx, ny, w_device);
+        cudaDeviceSynchronize();
+        *w = 0;
+        *e = 0;
+        deviceReduce(w_device, w, num_gpu_threads);
+        deviceReduceMax(e_device, e, num_gpu_threads);
 
-        errSync = cudaGetLastError();
-        if (errSync != cudaSuccess) { printf("Sync error: %s,\t%d\n", cudaGetErrorString(errSync), errSync); }
-        asyncErr = cudaDeviceSynchronize();
-        if(asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
-
-        cudaMemPrefetchAsync(w_device, num_gpu_threads*sizeof(double), cudaCpuDeviceId);
-        cudaMemPrefetchAsync(e_device, num_gpu_threads*sizeof(double), cudaCpuDeviceId);
-
+        cudaDeviceSynchronize();
+        /*
         e = 0.0;
         double w = 0.0;
 
@@ -196,12 +199,14 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
             w += w_device[i];
             e = (e_device[i] > e) ? e_device[i] : e;
         }
-
-        w /= (nx * ny);
-        e /= w;
+         */
+        //printf("%5d, %0.4e\t %0.4e\t %0.4e\n", n, e, w, *watom);
+        //printf("%5d, %0.4e,  %0.4e\n", n, *e, *w);
+        w[0] /= (nx * ny);
+        e[0] /= w[0];
 
         //if ((n % 10) == 0)
-            //printf("%5d, %0.4e\n", n, e, w);
+            //printf("%5d, %0.4e,  %0.4e\n", n, *e, *w);
         
         n++;
     }
@@ -209,13 +214,16 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
     cudaFree(vp);
     cudaFree(w_device);
     cudaFree(e_device);
+    double e_local = *e;
+    cudaFree(e);
+    cudaFree(w);
 
-    if (e < eps)
-        printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, nx, ny, e);
+    if (e_local < eps)
+        printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, nx, ny, e_local);
     else
         printf("ERROR: Failed to converge\n");
 
-    return (e < eps ? 0 : 1);
+    return (e_local < eps ? 0 : 1);
 }
 
 

@@ -15,9 +15,12 @@ double warpReduceSum(double val) {
 __inline__ __device__
 double warpReduceMax(double val) {
     double tmp;
-    for (int offset = warpSize/2; offset > 0; offset /= 2)
+    for (int offset = warpSize / 2; offset > 0; offset /= 2)
+    {
         tmp = __shfl_down_sync(FULL_MASK, val, offset);
         val = val > tmp ? val : tmp;
+    }
+
     return val;
 }
 
@@ -105,5 +108,8 @@ void deviceReduceMax(double *in, double* out, int N) {
     deviceReduceKernelMax<<<blocks, threads>>>(in, out, N);
     deviceReduceKernelMax<<<1, 1024>>>(out, out, blocks);
 }
+
+
+
 
 
