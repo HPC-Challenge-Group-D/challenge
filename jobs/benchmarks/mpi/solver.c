@@ -133,6 +133,25 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
             }
        }
 
+        /*
+        for (int ix = ix_start; ix < ix_end; ix++)
+        {
+            v[nx*0      + ix] = v[nx*(ny-2) + ix];
+            v[nx*(ny-1) + ix] = v[nx*1      + ix];
+
+            w += fabs(v[nx*0+ix]) + fabs(v[nx*(ny-1)+ix]);
+        }
+        */
+    /*
+        for (int iy = iy_start; iy < iy_end; iy++)
+        {
+            v[nx*iy + 0]      = v[nx*iy + (nx-2)];
+            v[nx*iy + (nx-1)] = v[nx*iy + 1     ];
+
+            w += fabs(v[nx*iy+0]) + fabs(v[nx*iy+(nx-1)]);
+        }
+        */
+
         //TODO: Reduce to 1 reduction operation
         MPI_Allreduce(MPI_IN_PLACE, &e, 1, MPI_DOUBLE, MPI_MAX, proc->cartcomm);
         MPI_Allreduce(MPI_IN_PLACE, &w, 1, MPI_DOUBLE, MPI_SUM, proc->cartcomm);

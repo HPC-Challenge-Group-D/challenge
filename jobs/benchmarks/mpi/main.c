@@ -32,50 +32,32 @@
 #include <math.h>
 
 #include <mpi.h>
-
 #include "proc_info.h"
-#include "init.h"
 
-/*
- * Parallel solver implemented in the solver.c file
- */
-int solver(double *, double *, double *, int, int, double, int, struct proc_info *);
+int solver(double *, double *, int, int, double, int, struct proc_info *);
 
-/*
- * Helper function that calculates the optimal partitioning of processes for the current domain.
- * Takes into account the xy-ration of the domain of the problem to place processes.
- */
-static int computeOptimalPartitioning(int nx, int ny, int size);
-
+int computeOptimalPartitioning(int nx, int ny, int size);
 
 int main()
 {
-    /*
-     * Setup Phase
-     */
-    initDevice();
-
-    /*Initialize MPI and the process info struct*/
+    /*Setup Phase*/
     MPI_Init(NULL, NULL);
     struct proc_info proc;
 
     MPI_Comm_size(MPI_COMM_WORLD, &proc.size);
 
-    /*Set-up proper distribution of the grid among a 2D process arrangement*/
+    /*Set-up proper distribution of the grid among a 2D process arangement*/
     proc.dims[1] = computeOptimalPartitioning(NX,NY, proc.size);
     proc.dims[0] = proc.size/proc.dims[1];
 
-    /*Set up the cartesian communicator using wraparound boundaries*/
     int periods[2] = {1,1};
     MPI_Cart_create(MPI_COMM_WORLD, 2, proc.dims, periods, 1, &proc.cartcomm);
 
     MPI_Comm_rank(proc.cartcomm, &proc.rank);
 
-    /*Get the ranks of the neighboring processes in all directions*/
     MPI_Cart_shift(proc.cartcomm, 0, 1, &proc.neighbors[SOUTH], &proc.neighbors[NORTH]);
     MPI_Cart_shift(proc.cartcomm, 1, 1, &proc.neighbors[WEST], &proc.neighbors[EAST]);
 
-    /*Get own cartesian coordinates*/
     MPI_Cart_coords(proc.cartcomm, proc.rank, 2, proc.coords);
 
     /*Local size of the grid; Additional rows and columns for boundary points*/
@@ -85,10 +67,7 @@ int main()
     int y_offset = (local_ny - 2) * proc.coords[0];
     int x_offset = (local_nx - 2) * proc.coords[1];
 
-    /*
-     * If the grid points are not divisible my the processor dimension.
-     * The last processor on the axis will receive the remaining points.
-     */
+    //If the gridpoints are not divisible my the processor dimension the last processor on the axis will recieve the remaining points.
     if (proc.coords[0] == proc.dims[0] - 1)
     {
         local_ny += ((NY - 2) % proc.dims[0]);
@@ -99,27 +78,35 @@ int main()
         local_nx += ((NX - 2) % proc.dims[1]);
     }
 
-    /*MPI Datatype for the communication of the boundary points between processes*/
+    /*MPI Datatypes for the communication of the boundary points inbetween processes*/
     MPI_Type_vector(local_nx-2, 1, 1, MPI_DOUBLE, &proc.row);
     MPI_Type_commit(&proc.row);
 
     MPI_Type_vector(local_ny-2, 1, local_nx, MPI_DOUBLE, &proc.column);
     MPI_Type_commit(&proc.column);
 
-    /*
-     * End of setup phase
-     */
+    /*End of setup phase*/
 
     double *v;
     double *f;
-    double *vp;
 
     // Allocate memory
-    //v = (double *) malloc(local_nx * local_ny * sizeof(double));
-    //f = (double *) malloc(local_nx * local_ny * sizeof(double));
+    v = (double *) malloc(local_nx * local_ny * sizeof(double));
+    f = (double *) malloc(local_nx * local_ny * sizeof(double));
 
-    //Allocate memory on the device
-    prepareDataMemory(v, vp, f, local_nx, local_ny, x_offset, y_offset);
+    // Initialise input
+    for (int iy = 0; iy < local_ny; iy++)
+        for (int ix = 0; ix < local_nx; ix++)
+        {
+            v[local_nx*iy+ix] = 0.0;
+
+            const double x = 2.0 * (ix+x_offset) / (NX - 1.0) - 1.0;
+            const double y = 2.0 * (iy+y_offset) / (NY - 1.0) - 1.0;
+            f[local_nx*iy+ix] = sin(x + y);
+        }
+
+    if(proc.rank == 0)
+        printf("Running Jacobi-solver on %d processes: %dx%d grid\n", proc.size, proc.dims[1], proc.dims[0]);
 
     /*Start timer*/
     struct timespec ts;
@@ -130,17 +117,16 @@ int main()
         start = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
     }
 
-
     // Call solver
-    solver(v, vp, f, local_nx, local_ny, EPS, NMAX, &proc);
-
+    solver(v, f, local_nx, local_ny, EPS, NMAX, &proc);
 
     /*End timer*/
+    MPI_Barrier(MPI_COMM_WORLD);
     if(proc.rank == 0)
     {
         clock_gettime(CLOCK_MONOTONIC, &ts);
         end = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
-        printf("Execution time: %f s\n", end-start);
+        printf("Execution time: %f s\n-----------------\n", end-start);
     }
 
     //for (int iy = 0; iy < NY; iy++)
@@ -148,7 +134,8 @@ int main()
     //        printf("%d,%d,%e\n", ix, iy, v[iy*NX+ix]);
 
     // Clean-up
-    freeDataMemory(v, vp, f);
+    free(v);
+    free(f);
 
     MPI_Type_free(&proc.row);
     MPI_Type_free(&proc.column);
@@ -157,10 +144,9 @@ int main()
     return 0;
 }
 
-
-static int computeOptimalPartitioning(int nx, int ny, int size)
+int computeOptimalPartitioning(int nx, int ny, int size)
 {
-    const double xy_ratio = ((double) nx)/ny; 
+    const double xy_ratio = ((double) nx)/ny;
     double best_ratio_distance = INFINITY;
     int best_procX = 0, best_procY = 0;
     for (int d = 1; d <= size; d++)

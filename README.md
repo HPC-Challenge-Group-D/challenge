@@ -1,15 +1,18 @@
-# HAICGU Training: Poisson Equation Solving
+# Poisson Equation Solving - Challenge | Group D
 
-## Introduction
+## Assignment
 
-The goal of this lab is to familiarise with the concepts of performance engineering. For this purpose, a simple but non-trivial numerical problem is considered, namely solving the Poisson equation in 2 dimensions using the iterative Jacobi algorithm.
+<details>
+    <summary>Introduction</summary>
+    The goal of this lab is to familiarise with the concepts of performance engineering. For this purpose, a simple but non-trivial numerical problem is considered, namely solving the Poisson equation in 2 dimensions using the iterative Jacobi algorithm.
 
-The following implementations of the numerical problem are provided:
+    The following implementations of the numerical problem are provided:
 
-- C programmers: [c/main.c](c/main.c), [c/solver.c](c/solver.c)
-- Fortran programmers: [f90/main.f90](f90/main.f90), [f90/solver.f90](f90/solver.f90)
+    - C programmers: [c/main.c](c/main.c), [c/solver.c](c/solver.c)
+    - Fortran programmers: [f90/main.f90](f90/main.f90), [f90/solver.f90](f90/solver.f90)
 
-The next section provides background on the problem, which is considered during this lab. Thereafter, a set of tasks and questions are given that need to be addressed for completing this lab. We will ask you to use the performance analysis tool Scalasca.
+    The next section provides background on the problem, which is considered during this lab. Thereafter, a set of tasks and questions are given that need to be addressed for completing this lab. We will ask you to use the performance analysis tool Scalasca.
+</details>
 
 ## Poisson equation
 
@@ -56,3 +59,65 @@ For this hands-on session, consider the following questions and address the foll
 6) Provide empirical evidence for your arguments by measuring time as well as the L1 data cache misses using Scalasca (via the PAPI counter ``PAPI_L1_DCM``) for (*NX*,*NY*)=(16,1024).
 7) After having optimised the code, what will run faster: (*NX*,*NY*)=(16,1024) or (*NX*,*NY*)=(1024,16)? Proof this by measuring time and L1 data cache misses and argue, why this meets your expectations based on data locality arguments.
 8) Compute the effective bandwidth, which is defined as the ratio of amount of loaded plus stored data (ignoring data locality) divided by the execution time. How does this compare to the hardware parameters of the node, which you have been using?
+
+## Documentation
+
+Login to Meluxina's login-nodes via ssh.
+
+### Interactive session
+
+To start an interactive session for 1h, CPU-only and 1 node, run:
+
+```bash
+salloc -A p200117 -t 01:00:00 -q dev --res cpudev -p cpu -N 1
+```
+
+### Important commands
+
+<details>
+    <summary>module</summary>
+
+[module](https://modules.readthedocs.io/en/latest/module.html) is a user interface to the Modules package
+```bash
+module avail                # list all available modules
+module spider               # list all available modules w/ description
+module overview             # compressed list of all available modules
+
+module spider <name>        # show description and versions of module
+module show <name>          # show contents of the specified module
+
+module list                 # list currently loaded modules
+
+module load <name>          # load specific module
+module unload <name>        # unload specific module
+module purge                # unload all loaded modules
+```
+</details>
+
+<details>
+    <summary>ml</summary>
+    
+[ml](https://modules.readthedocs.io/en/latest/ml.html) is a supplementary user interface for the Module package:
+```bash
+ml          # list currently loaded modules
+ml <name>   # load specified module
+ml -<name>  # unload specified module
+```
+</details>
+
+<details>
+    <summary>Batch Jobs</summary>
+
+```bash
+sbatch <job.sh>                 # submit job to SLURM
+squeue -u <$USER>               # view your jobs in SLURM queue
+squeue --start (-j <JOBID>)     # obtain estimated start time of job
+scancel <JOBID>                 # cancel a specific job
+sinfo                           # get info about running jobs
+```
+
+</details>
+
+```bash
+myquota         # check your quota
+```
