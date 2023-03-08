@@ -32,12 +32,14 @@
 #include <math.h>
 
 #include <mpi.h>
+
 #include "proc_info.h"
+#include "init.h"
 
 /*
  * Parallel solver implemented in the solver.c file
  */
-int solver(double *, double *, int, int, double, int, struct proc_info *);
+int solver(double *, double *, double *, int, int, double, int, struct proc_info *);
 
 /*
  * Helper function that calculates the optimal partitioning of processes for the current domain.
@@ -51,6 +53,8 @@ int main()
     /*
      * Setup Phase
      */
+    initDevice();
+
     /*Initialize MPI and the process info struct*/
     MPI_Init(NULL, NULL);
     struct proc_info proc;
@@ -108,21 +112,14 @@ int main()
 
     double *v;
     double *f;
+    double *vp;
 
     // Allocate memory
-    v = (double *) malloc(local_nx * local_ny * sizeof(double));
-    f = (double *) malloc(local_nx * local_ny * sizeof(double));
+    //v = (double *) malloc(local_nx * local_ny * sizeof(double));
+    //f = (double *) malloc(local_nx * local_ny * sizeof(double));
 
-    // Initialise input
-    for (int iy = 0; iy < local_ny; iy++)
-        for (int ix = 0; ix < local_nx; ix++)
-        {
-            v[local_nx*iy+ix] = 0.0;
-
-            const double x = 2.0 * (ix+x_offset) / (NX - 1.0) - 1.0;
-            const double y = 2.0 * (iy+y_offset) / (NY - 1.0) - 1.0;
-            f[local_nx*iy+ix] = sin(x + y);
-        }
+    //Allocate memory on the device
+    prepareDataMemory(v, vp, f, local_nx, local_ny, x_offset, y_offset);
 
     /*Start timer*/
     struct timespec ts;
@@ -135,7 +132,7 @@ int main()
 
 
     // Call solver
-    solver(v, f, local_nx, local_ny, EPS, NMAX, &proc);
+    solver(v, vp, f, local_nx, local_ny, EPS, NMAX, &proc);
 
 
     /*End timer*/
@@ -151,8 +148,7 @@ int main()
     //        printf("%d,%d,%e\n", ix, iy, v[iy*NX+ix]);
 
     // Clean-up
-    free(v);
-    free(f);
+    freeDataMemory(v, vp, f);
 
     MPI_Type_free(&proc.row);
     MPI_Type_free(&proc.column);

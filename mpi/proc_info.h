@@ -10,7 +10,7 @@
 #define NX 1024
 #endif
 #ifndef NY
-#define NY 16
+#define NY 1024
 #endif
 #define NMAX 200000
 #define EPS 1e-5

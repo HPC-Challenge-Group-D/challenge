@@ -35,47 +35,31 @@
 
 #include "proc_info.h"
 
-int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct proc_info *proc)
+#include "jacobi.h"
+#include "init.h"
+#include "reduction.h"
+
+
+int solver(double *v, double *vp, double *f, int nx, int ny, double eps, int nmax, struct proc_info *proc)
 {
     int n = 0;
-    double e = 2. * eps;
-    double *vp;
+    //double e = 2. * eps;
 
-    vp = (double *) malloc(nx * ny * sizeof(double));
+    double *w_device, *e_device;
+    double *e, *w;
 
-    while ((e > eps) && (n < nmax))
+    unsigned int num_gpu_threads = prepareMiscMemory(w, e, w_device, e_device);
+
+    *e = 2. * eps;
+
+    while (((*e) > eps) && (n < nmax))
     {
-        e = 0.0;
+        *w = 0;
+        *e = 0;
 
-        /*Computation Phase*/
-        for (int iy = 1; iy < (ny-1); iy++)
-        {
-            for( int ix = 1; ix < (nx-1); ix++ )
-            {
-                double d;
-
-                vp[iy*nx+ix] = -0.25 * (f[iy*nx+ix] -
-                    (v[nx*iy     + ix+1] + v[nx*iy     + ix-1] +
-                     v[nx*(iy+1) + ix  ] + v[nx*(iy-1) + ix  ]));
-
-                d = fabs(vp[nx*iy+ix] - v[nx*iy+ix]);
-                e = (d > e) ? d : e;
-            }
-        }
-
-        // Update v and compute error as well as error weight factor
-
-        double w = 0.0;
-
-        for (int iy = 1; iy < (ny-1); iy++)
-        {
-            for (int ix = 1; ix < (nx-1); ix++)
-            {
-                v[nx*iy+ix] = vp[nx*iy+ix];
-                w += fabs(v[nx*iy+ix]);
-            }
-        }
-
+        /*Start of computation phase*/
+        jacobiStep(vp, v, f, nx, ny, e_device, w_device);
+        sync();
         /*End of computation phase*/
 
         /*Communication Phase*/
@@ -95,68 +79,36 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         /*End of communication phase*/
 
         /*Compute weight on the boundary*/
-        
         if (proc->coords[0] == 0)
         {
-            for (int ix = 1; ix < (nx-1); ix++)
-            {
-                 //v[nx*1      + ix] = v[nx*0     + ix];
-                 w += fabs(v[nx*0 + ix]);
-            }
+            weightBoundary_x(v,nx,ny,w_device,0);
         }
 
         if(proc->coords[0] == proc->dims[0]-1)
         {
-             for (int ix = 1; ix < (nx-1); ix++)
-            {
-                 //v[nx*(ny-2) + ix] = v[nx*(ny-1)      + ix];
-                 w += fabs(v[nx*(ny-1) + ix]);
-            }
+            weightBoundary_x(v,nx,ny,w_device,ny-1);
         }
 
         if(proc->coords[1] == 0)
-       {
-            for (int iy = 1; iy < (ny-1); iy++)
-            {
-                //v[nx*iy + 1]      = v[nx*iy + 0];
-                w += fabs(v[nx*iy + 0]);
-            }
-       }
+        {
+            weightBoundary_y(v,nx,ny,w_device,0);
+        }
 
         if(proc->coords[1] == proc->dims[1]-1)
-       {
-            for (int iy = 1; iy < (ny-1); iy++)
-            {
-                 //v[nx*iy + (nx-2)] = v[nx*iy + (nx-1)];
-                w +=  fabs(v[nx*iy + (nx-1)]);
-            }
-       }
-
-        /*
-        for (int ix = ix_start; ix < ix_end; ix++)
         {
-            v[nx*0      + ix] = v[nx*(ny-2) + ix];
-            v[nx*(ny-1) + ix] = v[nx*1      + ix];
-
-            w += fabs(v[nx*0+ix]) + fabs(v[nx*(ny-1)+ix]);
+            weightBoundary_y(v,nx,ny,w_device,nx-1);
         }
-        */
-    /*
-        for (int iy = iy_start; iy < iy_end; iy++)
-        {
-            v[nx*iy + 0]      = v[nx*iy + (nx-2)];
-            v[nx*iy + (nx-1)] = v[nx*iy + 1     ];
 
-            w += fabs(v[nx*iy+0]) + fabs(v[nx*iy+(nx-1)]);
-        }
-        */
+        deviceReduce(w_device, w, num_gpu_threads);
+        deviceReduceMax(e_device, e, num_gpu_threads);
 
-        //TODO: Reduce to 1 reduction operation
-        MPI_Allreduce(MPI_IN_PLACE, &e, 1, MPI_DOUBLE, MPI_MAX, proc->cartcomm);
-        MPI_Allreduce(MPI_IN_PLACE, &w, 1, MPI_DOUBLE, MPI_SUM, proc->cartcomm);
+        sync();
 
-        w /= (NX * NY);
-        e /= w;
+        MPI_Allreduce(MPI_IN_PLACE, e, 1, MPI_DOUBLE, MPI_MAX, proc->cartcomm);
+        MPI_Allreduce(MPI_IN_PLACE, w, 1, MPI_DOUBLE, MPI_SUM, proc->cartcomm);
+
+        *w /= (NX * NY);
+        *e /= *w;
         
         /*
         if(proc->rank == 0)
@@ -170,15 +122,18 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         n++;
     }
 
-    free(vp);
+    double e_local = *e;
+
+    freeMiscMemory(w,e,w_device,e_device);
+
 
     if(proc->rank == 0)
     {
-        if (e < eps)
-            printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, NX, NY, e);
+        if (e_local < eps)
+            printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, NX, NY, e_local);
         else
             printf("ERROR: Failed to converge\n");
     }
 
-    return (e < eps ? 0 : 1);
+    return (e_local < eps ? 0 : 1);
 }

@@ -35,12 +35,14 @@
 #define NX 1024
 #endif
 #ifndef NY
-#define NY 16
+#define NY 128
 #endif
 #define NMAX 200000
 #define EPS 1e-5
 
 int solver(double *, double *, int, int, double, int);
+
+void initHost();
 
 int main()
 {
@@ -86,3 +88,38 @@ int main()
 
     return 0;
 }
+
+__global__
+void initKernel(double *v, double *f)
+{
+    int ixx = threadIdx.x + blockIdx.x * blockDim.x;
+    int sx = blockDim.x * gridDim.x;
+
+    int iyy = threadIdx.y + blockIdx.y * blockDim.y;
+    int sy = blockDim.y * gridDim.y;
+
+    // Initialise input
+    for (int iy = iyy; iy < NY; iy+=sy)
+        for (int ix = ixx; ix < NX; ix+=sx)
+        {
+            v[NX*iy+ix] = 0.0;
+
+            const double x = 2.0 * ix / (NX - 1.0) - 1.0;
+            const double y = 2.0 * iy / (NY - 1.0) - 1.0;
+            f[NX*iy+ix] = sin(x + y);
+        }
+}
+
+
+__host__
+void initHost()
+{
+    dim3 threadsPerBlock;
+    dim3 numberOfBlocks;
+
+    threadsPerBlock = dim3(16, 16);
+    numberOfBlocks = dim3(8,8);
+
+    initKernel<<<numberOfBlocks, threadsPerBlock>>>(v, f);
+}
+

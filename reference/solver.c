@@ -87,6 +87,8 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
             w += fabs(v[nx*iy+0]) + fabs(v[nx*iy+(nx-1)]);
         }
 
+        printf("%5d, %0.4e\t %0.4e\n", n, e, w);
+
         w /= (nx * ny);
         e /= w;
         

@@ -50,7 +50,8 @@ void deviceReduceMax(double *in, double* out, int N);
  * Results of the steps are then rewritten into the original array
  * The Kernel calculates its own error and weight value at position tid
  */
-__global__ void jacobiStepKernel(double *vp, double *v, double *f, int nx, int ny, double *e, double *w)
+__global__
+void jacobiStepKernel(double *vp, double *v, double *f, int nx, int ny, double *e, double *w)
 {
     int ixx = threadIdx.x + blockIdx.x * blockDim.x;
     int sx = blockDim.x * gridDim.x;
@@ -58,10 +59,8 @@ __global__ void jacobiStepKernel(double *vp, double *v, double *f, int nx, int n
     int iyy = threadIdx.y + blockIdx.y * blockDim.y;
     int sy = blockDim.y * gridDim.y;
 
-    int threadsPerBlock  = blockDim.x * blockDim.y;
-    int threadNumInBlock = threadIdx.x + blockDim.x * threadIdx.y;
-    int blockNumInGrid   = blockIdx.x  + gridDim.x  * blockIdx.y;
-    const unsigned int tid = blockNumInGrid * threadsPerBlock + threadNumInBlock;
+    /*Thread id for computation of the local weights and errors*/
+    const unsigned int tid = ixx*sy + iyy;
 
     e[tid] = 0.0;
     w[tid] = 0.0;
@@ -108,33 +107,52 @@ __global__ void jacobiStepKernel(double *vp, double *v, double *f, int nx, int n
  * Kernel to update the boundary points.
  * More care should here be placed on their placement...
  */
-__global__ void updateBoundaryKernel(double *v, int nx, int ny, double *w)
+__global__
+void updateBoundaryKernel(double *v, int nx, int ny, double *w)
 {
+    /*
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    int stride = blockDim.x * gridDim.x;
+    int stride = blockDim.x * gridDim.x;*/
+
+    int ixx = threadIdx.x + blockIdx.x * blockDim.x;
+    int sx = blockDim.x * gridDim.x;
+
+    int iyy = threadIdx.y + blockIdx.y * blockDim.y;
+    int sy = blockDim.y * gridDim.y;
+
+    /*Thread id for computation of the local weights and errors*/
+    const unsigned int tid = ixx*sy + iyy;
+
+    if(ixx < 1)
+        ixx+=sx;
+
+    if(iyy < 1)
+        iyy+=sy;
 
     /*
      * Update the boundary points
      */
-    for (int ix = idx+1; ix < (nx-1); ix+=stride)
-    {
-        v[nx*0      + ix] = v[nx*(ny-2) + ix];
-        v[nx*(ny-1) + ix] = v[nx*1      + ix];
-        w[idx] += fabs(v[nx*0+ix]) + fabs(v[nx*(ny-1)+ix]);
-    }
+    if(iyy == sx)
+        for (int ix = ixx; ix < (nx-1); ix+=sx)
+        {
+            v[nx*0      + ix] = v[nx*(ny-2) + ix];
+            v[nx*(ny-1) + ix] = v[nx*1      + ix];
+            w[tid] += fabs(v[nx*0+ix]) + fabs(v[nx*(ny-1)+ix]);
+        }
 
-    for (int iy = idx+1; iy < (ny-1); iy+=stride)
-    {
-        v[nx*iy + 0]      = v[nx*iy + (nx-2)];
-        v[nx*iy + (nx-1)] = v[nx*iy + 1     ];
-        w[idx] += fabs(v[nx*iy+0]) + fabs(v[nx*iy+(nx-1)]);
-    }
+    if(ixx == sy)
+        for (int iy = iyy; iy < (ny-1); iy+=sy)
+        {
+            v[nx*iy + 0]      = v[nx*iy + (nx-2)];
+            v[nx*iy + (nx-1)] = v[nx*iy + 1     ];
+            w[tid] += fabs(v[nx*iy+0]) + fabs(v[nx*iy+(nx-1)]);
+        }
 }
 
 /*
  * Host solver methods, which handles synchronisation and other important tasks.
- * Furthermore, it is responsible for assembling the error and weight necessary for the stopping condition...
  */
+__host__
 int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
 {
     int n = 0;
@@ -152,20 +170,26 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
     cudaDeviceProp props;
     cudaGetDeviceProperties(&props, deviceId);
 
-    threadsPerBlock = dim3(props.warpSize, 1);
-    numberOfBlocks = dim3(props.multiProcessorCount, 1);
-
-    printf("The program is running on a GPU with %d warps, %d MPs\n", props.warpSize, props.multiProcessorCount);
+    /*threadsPerBlock = dim3(props.warpSize, 1);
+    numberOfBlocks = dim3(props.multiProcessorCount, 1);*/
+    threadsPerBlock = dim3(16, 16);
+    numberOfBlocks = dim3(8,8);
 
     cudaMallocManaged(&vp, nx * ny * sizeof(double));
 
-    const unsigned int num_gpu_threads = numberOfBlocks.x * numberOfBlocks.y * threadsPerBlock.x * threadsPerBlock.y;
+    const unsigned int num_gpu_threads = (numberOfBlocks.x * threadsPerBlock.x) * (numberOfBlocks.y * threadsPerBlock.y);
 
     cudaMallocManaged(&w_device, num_gpu_threads*sizeof(double));
     cudaMallocManaged(&e_device, num_gpu_threads*sizeof(double));
 
     cudaMemPrefetchAsync(w_device, num_gpu_threads*sizeof(double), deviceId);
     cudaMemPrefetchAsync(e_device, num_gpu_threads*sizeof(double), deviceId);
+
+    /*Move the data used for the computation to the device*/
+    cudaMemAdvise(v, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
+    cudaMemAdvise(vp, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
+    cudaMemAdvise(f, nx*ny*sizeof(double), (cudaMemoryAdvise) 1, deviceId);
+
     cudaMemPrefetchAsync(v, nx*ny*sizeof(double), deviceId);
     cudaMemPrefetchAsync(vp, nx*ny*sizeof(double), deviceId);
     cudaMemPrefetchAsync(f, nx*ny*sizeof(double), deviceId);
@@ -178,43 +202,32 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
 
     while ((e[0] > eps) && (n < nmax))
     {
-
-
-        jacobiStepKernel<<<threadsPerBlock, numberOfBlocks>>>(vp, v, f, nx, ny, e_device, w_device);
-        cudaDeviceSynchronize();
-        updateBoundaryKernel<<<threadsPerBlock.x*threadsPerBlock.y, numberOfBlocks.x*numberOfBlocks.y>>>(v, nx, ny, w_device);
-        cudaDeviceSynchronize();
+        //cudaMemPrefetchAsync(v, nx*ny*sizeof(double), deviceId);
         *w = 0;
         *e = 0;
+
+        jacobiStepKernel<<<numberOfBlocks, threadsPerBlock>>>(vp, v, f, nx, ny, e_device, w_device);
+        updateBoundaryKernel<<<numberOfBlocks, threadsPerBlock>>>(v, nx, ny, w_device);
         deviceReduce(w_device, w, num_gpu_threads);
         deviceReduceMax(e_device, e, num_gpu_threads);
-
         cudaDeviceSynchronize();
-        /*
-        e = 0.0;
-        double w = 0.0;
 
-        for (int i = 0; i < num_gpu_threads; i++)
-        {
-            w += w_device[i];
-            e = (e_device[i] > e) ? e_device[i] : e;
-        }
-         */
-        //printf("%5d, %0.4e\t %0.4e\t %0.4e\n", n, e, w, *watom);
-        //printf("%5d, %0.4e,  %0.4e\n", n, *e, *w);
+        //cudaMemPrefetchAsync(v, nx*ny*sizeof(double), cudaCpuDeviceId);
+
         w[0] /= (nx * ny);
         e[0] /= w[0];
 
         //if ((n % 10) == 0)
-            //printf("%5d, %0.4e,  %0.4e\n", n, *e, *w);
-        
+            //printf("%5d, %0.4e,  %0.4e\n", n, e[0], w[0]);
+
         n++;
     }
 
     cudaFree(vp);
     cudaFree(w_device);
     cudaFree(e_device);
-    double e_local = *e;
+
+    double e_local = e[0];
     cudaFree(e);
     cudaFree(w);
 
