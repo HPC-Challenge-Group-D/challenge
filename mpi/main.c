@@ -28,6 +28,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <math.h>
 
 #include <mpi.h>
@@ -35,7 +36,7 @@
 
 int solver(double *, double *, int, int, double, int, struct proc_info *);
 
-int copmuteOptimalPartitioning(int nx, int ny, int size);
+int computeOptimalPartitioning(int nx, int ny, int size);
 
 int main()
 {
@@ -46,14 +47,14 @@ int main()
     MPI_Comm_size(MPI_COMM_WORLD, &proc.size);
 
     /*Set-up proper distribution of the grid among a 2D process arangement*/
-    proc.dims[1] = copmuteOptimalPartitioning(NX,NY, proc.size);
+    proc.dims[1] = computeOptimalPartitioning(NX,NY, proc.size);
     proc.dims[0] = proc.size/proc.dims[1];
 
     int periods[2] = {1,1};
     MPI_Cart_create(MPI_COMM_WORLD, 2, proc.dims, periods, 1, &proc.cartcomm);
 
     MPI_Comm_rank(proc.cartcomm, &proc.rank);
-    
+
     MPI_Cart_shift(proc.cartcomm, 0, 1, &proc.neighbors[SOUTH], &proc.neighbors[NORTH]);
     MPI_Cart_shift(proc.cartcomm, 1, 1, &proc.neighbors[WEST], &proc.neighbors[EAST]);
 
@@ -104,12 +105,33 @@ int main()
             f[local_nx*iy+ix] = sin(x + y);
         }
 
+    if(proc.rank == 0)
+        printf("Running Jacobi-solver on %d processes: %dx%d grid\n", proc.size, proc.dims[1], proc.dims[0]);
+
+    #ifdef MEASURE_TIME
+    /*Start timer*/
+    struct timespec ts;
+    double start, end;
+    if(proc.rank == 0)
+    {
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        start = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
+    }
+    #endif
+
     // Call solver
     solver(v, f, local_nx, local_ny, EPS, NMAX, &proc);
+    MPI_Barrier(MPI_COMM_WORLD);
 
-    //for (int iy = 0; iy < NY; iy++)
-    //    for (int ix = 0; ix < NX; ix++)
-    //        printf("%d,%d,%e\n", ix, iy, v[iy*NX+ix]);
+    #ifdef MEASURE_TIME
+    /*End timer*/
+    if(proc.rank == 0)
+    {
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        end = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
+        printf("Execution time: %f s\n-----------------\n", end-start);
+    }
+    #endif
 
     // Clean-up
     free(v);
@@ -122,9 +144,9 @@ int main()
     return 0;
 }
 
-int copmuteOptimalPartitioning(int nx, int ny, int size)
+int computeOptimalPartitioning(int nx, int ny, int size)
 {
-    const double xy_ratio = ((double) nx)/ny; 
+    const double xy_ratio = ((double) nx)/ny;
     double best_ratio_distance = INFINITY;
     int best_procX = 0, best_procY = 0;
     for (int d = 1; d <= size; d++)
@@ -133,7 +155,7 @@ int copmuteOptimalPartitioning(int nx, int ny, int size)
         {
             const int div2 = size/d;
             const double ratio = ((double )d) / div2;
-            if (fabs(ratio - xy_ratio) < best_ratio_distance)  
+            if (fabs(ratio - xy_ratio) < best_ratio_distance)
             {
                 best_procX = d;
                 best_procY = div2;

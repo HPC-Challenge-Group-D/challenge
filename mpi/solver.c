@@ -96,7 +96,7 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         /*End of communication phase*/
 
         /*Compute weight on the boundary*/
-        
+
         if (proc->coords[0] == 0)
         {
             for (int ix = 1; ix < (nx-1); ix++)
