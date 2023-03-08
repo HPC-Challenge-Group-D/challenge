@@ -173,7 +173,7 @@ static int computeOptimalPartitioning(int nx, int ny, int size)
         {
             const int div2 = size/d;
             const double ratio = ((double )d) / div2;
-            if (fabs(ratio - xy_ratio) < best_ratio_distance)  
+            if (fabs(ratio - xy_ratio) < best_ratio_distance)
             {
                 best_procX = d;
                 best_procY = div2;
