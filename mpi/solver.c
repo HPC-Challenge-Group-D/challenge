@@ -116,22 +116,22 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
         }
 
         if(proc->coords[1] == 0)
-       {
+        {
             for (int iy = 1; iy < (ny-1); iy++)
             {
                 //v[nx*iy + 1]      = v[nx*iy + 0];
                 w += fabs(v[nx*iy + 0]);
             }
-       }
+        }
 
         if(proc->coords[1] == proc->dims[1]-1)
-       {
+        {
             for (int iy = 1; iy < (ny-1); iy++)
             {
                  //v[nx*iy + (nx-2)] = v[nx*iy + (nx-1)];
                 w +=  fabs(v[nx*iy + (nx-1)]);
             }
-       }
+        }
 
         //TODO: Reduce to 1 reduction operation
         MPI_Allreduce(MPI_IN_PLACE, &e, 1, MPI_DOUBLE, MPI_MAX, proc->cartcomm);
@@ -146,8 +146,6 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
             if ((n % 10) == 0)
                 printf("%5d, %0.4e\n", n, e);
         }*/
-        //if ((n % 10) == 0)
-        //    printf("%5d, %0.4e\n", n, e);
 
         n++;
     }

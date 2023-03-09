@@ -34,6 +34,10 @@
 #include <mpi.h>
 #include "proc_info.h"
 
+#ifndef MEASURETIME
+#define MEASURETIME 0
+#endif
+
 /*
  * Parallel solver implemented in the solver.c file
  */
@@ -125,6 +129,7 @@ int main()
         }
 
     /*Start timer*/
+    #if MEASURETIME
     struct timespec ts;
     double start, end;
     if(proc.rank == 0)
@@ -132,19 +137,23 @@ int main()
         clock_gettime(CLOCK_MONOTONIC, &ts);
         start = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
     }
+    #endif
 
 
     // Call solver
     solver(v, f, local_nx, local_ny, EPS, NMAX, &proc);
 
 
+
     /*End timer*/
+    #if MEASURETIME
     if(proc.rank == 0)
     {
         clock_gettime(CLOCK_MONOTONIC, &ts);
         end = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
         printf("Execution time: %f s\n", end-start);
     }
+    #endif
 
     //for (int iy = 0; iy < NY; iy++)
     //    for (int ix = 0; ix < NX; ix++)
