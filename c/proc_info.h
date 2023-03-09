@@ -21,10 +21,12 @@
 #define NX 1024
 #endif
 #ifndef NY
-#define NY 1024
+#define NY 16
 #endif
 #define NMAX 200000
 #define EPS 1e-5
+
+#define INTERVAL_ERROR_CHECK 100
 
 /*
  * Process info struct storing all relevant information for the current process.

@@ -111,24 +111,24 @@ void weightBoundaryKernel_y(double *v, int nx, int ny, double *w, int ix)
 
 }
 
-void jacobiStep(double *vp, double *v, double *f, int nx, int ny, double *e, double *w)
+extern "C" void jacobiStep(double *vp, double *v, double *f, int nx, int ny, double *e, double *w)
 {
     dim3 threadsPerBlock = dim3(16, 16);
     dim3 numberOfBlocks = dim3(8,8);
     jacobiStepKernel<<<numberOfBlocks, threadsPerBlock>>>(vp,v,f,nx,ny,e,w);
 }
 
-void weightBoundary_x(double *v, int nx, int ny, double *w, int iy)
+extern "C" void weightBoundary_x(double *v, int nx, int ny, double *w, int iy)
 {
     weightBoundaryKernel_x<<<8,32>>>(v,nx,ny,w,iy);
 }
 
-void weightBoundary_y(double *v, int nx, int ny, double *w, int ix)
+extern "C" void weightBoundary_y(double *v, int nx, int ny, double *w, int ix)
 {
     weightBoundaryKernel_x<<<8,32>>>(v,nx,ny,w,ix);
 }
 
-void sync()
+extern "C" void sync()
 {
     cudaDeviceSynchronize();
 }

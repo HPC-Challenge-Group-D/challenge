@@ -2,7 +2,6 @@
 // Created by Patrik Rac on 08.03.23.
 //
 
-#include "proc_info.h"
 #include "init.h"
 
 __global__
@@ -26,77 +25,83 @@ void initDataKernel(double *v, double *f, int nx, int ny, int offset_x, int offs
         }
 }
 
-void initDevice()
+extern "C" void initDevice()
 {
     /*Set the appropriate device before the call to MPI_init()*/
     char * localRankStr = NULL;
-    int rank = 0, deviceCount = 0;
+    int rank = 0;
+    //int deviceCount = 0;
 
     // We extract the local rank initialization using an environment variable
-    if ((localRankStr = getenv("OMPI_COMM_WORLD_LOCAL_RANK")) != NULL)
+    if ((localRankStr = getenv("SLURM_LOCALID")) != NULL)
     {
         rank = atoi(localRankStr);
     }
-    cudaGetDeviceCount(&deviceCount);
-    cudaSetDevice(rank % deviceCount);
+    else
+    {
+        printf("Could not determine the appropriate local rank!\n");
+    }
+    //cudaGetDeviceCount(&deviceCount);
+    //printf("There are %d devices\n", deviceCount);
+    cudaSetDevice(rank);
 }
 
 /*
  * Prepares the memory of v, vp and f on the device and initializes v and f with the correct values
  */
-void prepareDataMemory(double *v, double *vp, double *f, int nx, int ny, int offset_x, int offset_y)
+extern "C" void prepareDataMemory(double **v, double **vp, double **f, int nx, int ny, int offset_x, int offset_y)
 {
     int deviceId;
     cudaGetDevice(&deviceId);
     dim3 threadsPerBlock = dim3(16, 16);
     dim3 numberOfBlocks = dim3(8,8);
-    cudaMallocManaged(&v, nx * ny * sizeof(double));
-    cudaMallocManaged(&f, nx * ny * sizeof(double));
+    cudaMallocManaged(v, nx * ny * sizeof(double));
+    cudaMallocManaged(f, nx * ny * sizeof(double));
 
-    cudaMallocManaged(&vp, nx * ny * sizeof(double));
+    cudaMallocManaged(vp, nx * ny * sizeof(double));
 
     /*Move the data used for the computation to the device*/
-    cudaMemAdvise(v, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
-    cudaMemAdvise(vp, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
-    cudaMemAdvise(f, nx*ny*sizeof(double), (cudaMemoryAdvise) 1, deviceId);
+    cudaMemAdvise(*v, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
+    cudaMemAdvise(*vp, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
+    cudaMemAdvise(*f, nx*ny*sizeof(double), (cudaMemoryAdvise) 1, deviceId);
 
-    cudaMemPrefetchAsync(v, nx*ny*sizeof(double), deviceId);
-    cudaMemPrefetchAsync(vp, nx*ny*sizeof(double), deviceId);
-    cudaMemPrefetchAsync(f, nx*ny*sizeof(double), deviceId);
+    cudaMemPrefetchAsync(*v, nx*ny*sizeof(double), deviceId);
+    cudaMemPrefetchAsync(*vp, nx*ny*sizeof(double), deviceId);
+    cudaMemPrefetchAsync(*f, nx*ny*sizeof(double), deviceId);
 
-    initDataKernel<<<numberOfBlocks, threadsPerBlock>>>(v,f,nx,ny,offset_x, offset_y);
+    initDataKernel<<<numberOfBlocks, threadsPerBlock>>>(*v,*f,nx,ny,offset_x, offset_y);
 }
 
-unsigned int prepareMiscMemory(double *w, double *e, double *w_device, double *e_device)
+extern "C" unsigned int prepareMiscMemory(double **w, double **e, double **w_device, double **e_device)
 {
     int deviceId;
     cudaGetDevice(&deviceId);
     dim3 threadsPerBlock = dim3(16, 16);
     dim3 numberOfBlocks = dim3(8,8);
     unsigned int num_gpu_threads = (numberOfBlocks.x * threadsPerBlock.x) * (numberOfBlocks.y * threadsPerBlock.y);
-    cudaMallocManaged(&w_device, num_gpu_threads*sizeof(double));
-    cudaMallocManaged(&e_device, num_gpu_threads*sizeof(double));
+    cudaMallocManaged(w_device, num_gpu_threads*sizeof(double));
+    cudaMallocManaged(e_device, num_gpu_threads*sizeof(double));
 
-    cudaMemPrefetchAsync(w_device, num_gpu_threads*sizeof(double), deviceId);
-    cudaMemPrefetchAsync(e_device, num_gpu_threads*sizeof(double), deviceId);
+    cudaMemPrefetchAsync(*w_device, num_gpu_threads*sizeof(double), deviceId);
+    cudaMemPrefetchAsync(*e_device, num_gpu_threads*sizeof(double), deviceId);
 
-    cudaMallocManaged(&w, sizeof(double));
-    cudaMallocManaged(&e, sizeof(double));
+    cudaMallocManaged(w, sizeof(double));
+    cudaMallocManaged(e, sizeof(double));
     return num_gpu_threads;
 }
 
-void freeDataMemory(double *v, double *vp, double *f)
+extern "C" void freeDataMemory(double **v, double **vp, double **f)
 {
-    cudaFree(v);
-    cudaFree(vp);
-    cudaFree(f);
+    cudaFree(*v);
+    cudaFree(*vp);
+    cudaFree(*f);
 }
 
 
-void freeMiscMemory(double *w, double *e, double *w_device, double *e_device)
+extern "C" void freeMiscMemory(double **w, double **e, double **w_device, double **e_device)
 {
-    cudaFree(w);
-    cudaFree(e);
-    cudaFree(w_device);
-    cudaFree(e_device);
+    cudaFree(*w);
+    cudaFree(*e);
+    cudaFree(*w_device);
+    cudaFree(*e_device);
 }

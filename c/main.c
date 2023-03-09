@@ -34,10 +34,13 @@
 #include <mpi.h>
 
 #include "proc_info.h"
+
+#include "jacobi.h"
 #include "init.h"
+#include "reduction.h"
 
 /*
- * Parallel solver implemented in the solver.c file
+ * Parallel solver
  */
 int solver(double *, double *, double *, int, int, double, int, struct proc_info *);
 
@@ -70,6 +73,11 @@ int main()
     MPI_Cart_create(MPI_COMM_WORLD, 2, proc.dims, periods, 1, &proc.cartcomm);
 
     MPI_Comm_rank(proc.cartcomm, &proc.rank);
+
+    if(proc.rank == 0)
+    {
+        printf("Running MPI-CUDA with %d processes\n", proc.size);
+    }
 
     /*Get the ranks of the neighboring processes in all directions*/
     MPI_Cart_shift(proc.cartcomm, 0, 1, &proc.neighbors[SOUTH], &proc.neighbors[NORTH]);
@@ -119,7 +127,7 @@ int main()
     //f = (double *) malloc(local_nx * local_ny * sizeof(double));
 
     //Allocate memory on the device
-    prepareDataMemory(v, vp, f, local_nx, local_ny, x_offset, y_offset);
+    prepareDataMemory(&v, &vp, &f, local_nx, local_ny, x_offset, y_offset);
 
     /*Start timer*/
     struct timespec ts;
@@ -148,7 +156,7 @@ int main()
     //        printf("%d,%d,%e\n", ix, iy, v[iy*NX+ix]);
 
     // Clean-up
-    freeDataMemory(v, vp, f);
+    freeDataMemory(&v, &vp, &f);
 
     MPI_Type_free(&proc.row);
     MPI_Type_free(&proc.column);
@@ -162,7 +170,7 @@ static int computeOptimalPartitioning(int nx, int ny, int size)
 {
     const double xy_ratio = ((double) nx)/ny; 
     double best_ratio_distance = INFINITY;
-    int best_procX = 0, best_procY = 0;
+    int best_procX = 0;
     for (int d = 1; d <= size; d++)
     {
         if(size%d == 0)
@@ -172,10 +180,109 @@ static int computeOptimalPartitioning(int nx, int ny, int size)
             if (fabs(ratio - xy_ratio) < best_ratio_distance)
             {
                 best_procX = d;
-                best_procY = div2;
                 best_ratio_distance = fabs(ratio - xy_ratio);
             }
         }
     }
     return best_procX;
+}
+
+
+int solver(double *v, double *vp, double *f, int nx, int ny, double eps, int nmax, struct proc_info *proc)
+{
+    int n = 0;
+    //double e = 2. * eps;
+
+    double *w_device, *e_device;
+    double *e, *w;
+
+    unsigned int num_gpu_threads = prepareMiscMemory(&w, &e, &w_device, &e_device);
+
+    *e = 2. * eps;
+
+    while (((*e) > eps) && (n < nmax))
+    {
+
+        /*Start of computation phase*/
+        jacobiStep(vp, v, f, nx, ny, e_device, w_device);
+        sync();
+        /*End of computation phase*/
+
+        /*Communication Phase*/
+        //TODO: Maybe optimize here...
+
+        MPI_Sendrecv(&v[nx*(ny-2)+1], 1, proc->row, proc->neighbors[NORTH], 0,
+                     &v[1], 1, proc->row, proc->neighbors[SOUTH], 0, proc->cartcomm, MPI_STATUS_IGNORE);
+
+        MPI_Sendrecv(&v[nx*1 + 1], 1, proc->row, proc->neighbors[SOUTH], 0,
+                     &v[nx*(ny-1) + 1], 1, proc->row, proc->neighbors[NORTH], 0, proc->cartcomm, MPI_STATUS_IGNORE);
+
+        MPI_Sendrecv(&v[nx*2 - 2], 1, proc->column, proc->neighbors[EAST], 0,
+                     &v[nx], 1, proc->column, proc->neighbors[WEST], 0, proc->cartcomm, MPI_STATUS_IGNORE);
+
+        MPI_Sendrecv(&v[nx+1], 1, proc->column, proc->neighbors[WEST], 0,
+                     &v[nx*2 - 1], 1, proc->column, proc->neighbors[EAST], 0, proc->cartcomm, MPI_STATUS_IGNORE);
+
+        /*End of communication phase*/
+        if(n % INTERVAL_ERROR_CHECK == 0)
+        {
+            *w = 0;
+            *e = 0;
+            /*Compute weight on the boundary*/
+            if (proc->coords[0] == 0)
+            {
+                weightBoundary_x(v,nx,ny,w_device,0);
+            }
+
+            if(proc->coords[0] == proc->dims[0]-1)
+            {
+                weightBoundary_x(v,nx,ny,w_device,ny-1);
+            }
+
+            if(proc->coords[1] == 0)
+            {
+                weightBoundary_y(v,nx,ny,w_device,0);
+            }
+
+            if(proc->coords[1] == proc->dims[1]-1)
+            {
+                weightBoundary_y(v,nx,ny,w_device,nx-1);
+            }
+
+            deviceReduce(w_device, w, num_gpu_threads);
+            deviceReduceMax(e_device, e, num_gpu_threads);
+            sync();
+
+            MPI_Allreduce(MPI_IN_PLACE, e, 1, MPI_DOUBLE, MPI_MAX, proc->cartcomm);
+            MPI_Allreduce(MPI_IN_PLACE, w, 1, MPI_DOUBLE, MPI_SUM, proc->cartcomm);
+
+            *w /= (NX * NY);
+            *e /= *w;
+        }
+        /*
+        if(proc->rank == 0)
+        {
+            if ((n % 10) == 0)
+                printf("%5d, %0.4e\n", n, e);
+        }*/
+        //if ((n % 10) == 0)
+        //    printf("%5d, %0.4e\n", n, e);
+
+        n++;
+    }
+
+    double e_local = *e;
+
+    freeMiscMemory(&w,&e,&w_device,&e_device);
+
+
+    if(proc->rank == 0)
+    {
+        if (e_local < eps)
+            printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, NX, NY, e_local);
+        else
+            printf("ERROR: Failed to converge\n");
+    }
+
+    return (e_local < eps ? 0 : 1);
 }
