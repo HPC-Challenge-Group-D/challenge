@@ -31,8 +31,8 @@
  */
 
 /*
- * Pure CUDA version of the Jacobi solver
- * Code runs on single GPU and is used to analyze the behavior and of
+ * MPI-CUDA version of the Jacobi solver
+ * Code runs on multiple GPUs and is used to analyze the behavior and of
  * the program in this setting.
  */
 
@@ -53,12 +53,12 @@ void initHost(double *, double *, int, int, int, int);
 
 int main()
 {
-    /*Set the appropriate device before the call to MPI_init()*/
-    initDevice();
+
 
     /*
      * Setup Phase
      */
+    /*Set the appropriate device before the call to MPI_init()*/
     initDevice();
 
     /*Initialize MPI and the process info struct*/
@@ -132,6 +132,8 @@ int main()
     // Initialise data
     initHost(v,f, local_nx, local_ny, x_offset, y_offset);
 
+    cudaDeviceSynchronize();
+
     /*Start timer*/
     struct timespec ts;
     double start, end;
@@ -197,7 +199,6 @@ void initDevice()
 {
     char * localRankStr = NULL;
     int local_rank = 0;
-    int deviceCount = 0;
 
     // We extract the local rank initialization using an environment variable
     if ((localRankStr = getenv("SLURM_LOCALID")) != NULL)
@@ -208,8 +209,7 @@ void initDevice()
     {
         printf("Could not determine the appropriate local rank!\n");
     }
-    cudaGetDeviceCount(&deviceCount);
-    printf("There are %d devices\n", deviceCount);
+
     printf("Initializing with device %d\n", local_rank);
     fflush(stdout);
     cudaSetDevice(local_rank);
