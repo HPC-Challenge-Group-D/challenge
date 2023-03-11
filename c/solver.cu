@@ -258,7 +258,7 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
                      leftHalo, ny-2,  MPI_DOUBLE, proc->neighbors[WEST], 0, proc->cartcomm, MPI_STATUS_IGNORE);
 
         unpackColumn<<<numberOfBlocks.x*numberOfBlocks.y, threadsPerBlock.x,threadsPerBlock.y>>>(&v[nx], leftHalo, ny-2, nx);
-        
+
         packColumn<<<numberOfBlocks.x*numberOfBlocks.y, threadsPerBlock.x,threadsPerBlock.y>>>(&v[nx+1], leftHalo, ny-2, nx);
         cudaDeviceSynchronize();
 
@@ -298,8 +298,6 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax, struct pr
             cub::DeviceReduce::Sum(sum_temp_storage, sum_temp_storage_bytes, w_device, d_w, num_gpu_threads);
             //deviceReduceMax(e_device, e, num_gpu_threads);
             cub::DeviceReduce::Max(max_temp_storage, max_temp_storage_bytes, e_device, d_e, num_gpu_threads);
-
-
 
             cudaMemcpy(&e, d_e, sizeof(double), cudaMemcpyDeviceToHost);
             cudaMemcpy(&w, d_w, sizeof(double), cudaMemcpyDeviceToHost);
