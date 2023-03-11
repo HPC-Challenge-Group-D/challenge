@@ -26,6 +26,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Pure CUDA version of the Jacobi solver
+ * Code runs on single GPU and is used to analyze the behavior and of
+ * the program in this setting.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -35,14 +41,15 @@
 #define NX 1024
 #endif
 #ifndef NY
-#define NY 128
+#define NY 16
 #endif
 #define NMAX 200000
 #define EPS 1e-5
 
 int solver(double *, double *, int, int, double, int);
 
-void initHost();
+__host__
+void initHost(double *, double *);
 
 int main()
 {
@@ -54,15 +61,7 @@ int main()
     cudaMallocManaged(&f, NX * NY * sizeof(double));
 
     // Initialise input
-    for (int iy = 0; iy < NY; iy++)
-        for (int ix = 0; ix < NX; ix++)
-        {
-            v[NX*iy+ix] = 0.0;
-
-            const double x = 2.0 * ix / (NX - 1.0) - 1.0;
-            const double y = 2.0 * iy / (NY - 1.0) - 1.0;
-            f[NX*iy+ix] = sin(x + y);
-        }
+    initHost(v,f);
 
     /*Start timer*/
     struct timespec ts;
@@ -112,7 +111,7 @@ void initKernel(double *v, double *f)
 
 
 __host__
-void initHost()
+void initHost(double *v, double *f)
 {
     dim3 threadsPerBlock;
     dim3 numberOfBlocks;

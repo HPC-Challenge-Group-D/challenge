@@ -33,22 +33,18 @@
 #include <stdlib.h>
 #include <math.h>
 
-/*
-TODO: This implementation should give a rough baseline on the implementation in CUDA
- * Non optimal CUDA implementation
- * The main bottleneck of this implementation is the constant transfer of the weights and errors
- * They are transferred to the CPU for assembly and evaluation each iteration.
- * This can possibly be solved using a well implemented GPU reduction (HOWEVER tricky).
- * Furthermore, more care can be placed on the boundary value placement and synchronisation.
- */
+#include <cub/device/device_reduce.cuh>
 
+#define INTERVAL_ERROR_CHECK 100
+
+/*Get headers of the device reduction functions*/
 void deviceReduce(double *in, double* out, int N);
 void deviceReduceMax(double *in, double* out, int N);
 
 /*
  * Kernel to perform the Jacobi Step
  * Results of the steps are then rewritten into the original array
- * The Kernel calculates its own error and weight value at position tid
+ * The Device calculates its own error and weight value at position tid
  */
 __global__
 void jacobiStepKernel(double *vp, double *v, double *f, int nx, int ny, double *e, double *w)
@@ -96,8 +92,8 @@ void jacobiStepKernel(double *vp, double *v, double *f, int nx, int ny, double *
     {
         for (int ix = ixx; ix < (nx-1); ix+=sx)
         {
-            v[nx*iy+ix] = vp[nx*iy+ix];
-            w[tid] += fabs(v[nx*iy+ix]);
+            //v[nx*iy+ix] = vp[nx*iy+ix];
+            w[tid] += fabs(vp[nx*iy+ix]);
         }
     }
 }
@@ -156,66 +152,72 @@ __host__
 int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
 {
     int n = 0;
-    //double e = 2. * eps;
+
+    /*Allocate memory for the secondary array vp*/
     double *vp;
+    cudaMallocManaged(&vp, nx * ny * sizeof(double));
 
-    double *w_device, *e_device;
-
+    /*Set the number of blocks and number of Threads for the kernel launches*/
     dim3 threadsPerBlock;
     dim3 numberOfBlocks;
-
-    int deviceId;
-    cudaGetDevice(&deviceId);
-    
-    cudaDeviceProp props;
-    cudaGetDeviceProperties(&props, deviceId);
-
-    /*threadsPerBlock = dim3(props.warpSize, 1);
-    numberOfBlocks = dim3(props.multiProcessorCount, 1);*/
     threadsPerBlock = dim3(16, 16);
     numberOfBlocks = dim3(8,8);
 
-    cudaMallocManaged(&vp, nx * ny * sizeof(double));
-
+    /*Calculate theoretical value of total number of gpu threads*/
     const unsigned int num_gpu_threads = (numberOfBlocks.x * threadsPerBlock.x) * (numberOfBlocks.y * threadsPerBlock.y);
 
+    /*Allocate local array for the errors and weights on device*/
+    double *w_device, *e_device;
     cudaMallocManaged(&w_device, num_gpu_threads*sizeof(double));
     cudaMallocManaged(&e_device, num_gpu_threads*sizeof(double));
 
-    cudaMemPrefetchAsync(w_device, num_gpu_threads*sizeof(double), deviceId);
-    cudaMemPrefetchAsync(e_device, num_gpu_threads*sizeof(double), deviceId);
-
-    /*Move the data used for the computation to the device*/
-    cudaMemAdvise(v, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
-    cudaMemAdvise(vp, nx*ny*sizeof(double), (cudaMemoryAdvise) 2, deviceId);
-    cudaMemAdvise(f, nx*ny*sizeof(double), (cudaMemoryAdvise) 1, deviceId);
-
-    cudaMemPrefetchAsync(v, nx*ny*sizeof(double), deviceId);
-    cudaMemPrefetchAsync(vp, nx*ny*sizeof(double), deviceId);
-    cudaMemPrefetchAsync(f, nx*ny*sizeof(double), deviceId);
-
-
+    /*Allocate memory for the resulting reduced weight and error*/
     double *e, *w;
     cudaMallocManaged(&w, sizeof(double));
     cudaMallocManaged(&e, sizeof(double));
     *e = 2. * eps;
 
+    void *sum_temp_storage=NULL;
+    size_t sum_temp_storage_bytes = 0;
+    cub::DeviceReduce::Sum(sum_temp_storage, sum_temp_storage_bytes, w_device, w, num_gpu_threads);
+    cudaMalloc(&sum_temp_storage,sum_temp_storage_bytes);
+
+    void *max_temp_storage = NULL;
+    size_t max_temp_storage_bytes = 0;
+    cub::DeviceReduce::Max(max_temp_storage, max_temp_storage_bytes, e_device, e, num_gpu_threads);
+    cudaMalloc(&max_temp_storage, max_temp_storage_bytes);
+
+    cudaDeviceSynchronize();
+
     while ((e[0] > eps) && (n < nmax))
     {
         //cudaMemPrefetchAsync(v, nx*ny*sizeof(double), deviceId);
-        *w = 0;
-        *e = 0;
 
         jacobiStepKernel<<<numberOfBlocks, threadsPerBlock>>>(vp, v, f, nx, ny, e_device, w_device);
+
+        /*Swap the pointer for the primary and secondary array before updating the boundary*/
+        double *tmp = v;
+        v = vp;
+        vp = tmp;
+
         updateBoundaryKernel<<<numberOfBlocks, threadsPerBlock>>>(v, nx, ny, w_device);
-        deviceReduce(w_device, w, num_gpu_threads);
-        deviceReduceMax(e_device, e, num_gpu_threads);
-        cudaDeviceSynchronize();
+
+        if((n+1)%INTERVAL_ERROR_CHECK == 0)
+        {
+            *w = 0;
+            *e = 0;
+            //deviceReduce(w_device, w, num_gpu_threads);
+            cub::DeviceReduce::Sum(sum_temp_storage, sum_temp_storage_bytes, w_device, w, num_gpu_threads);
+            //deviceReduceMax(e_device, e, num_gpu_threads);
+            cub::DeviceReduce::Max(max_temp_storage, max_temp_storage_bytes, e_device, e, num_gpu_threads);
+
+            cudaDeviceSynchronize();
+            w[0] /= (nx * ny);
+            e[0] /= w[0];
+        }
+
 
         //cudaMemPrefetchAsync(v, nx*ny*sizeof(double), cudaCpuDeviceId);
-
-        w[0] /= (nx * ny);
-        e[0] /= w[0];
 
         //if ((n % 10) == 0)
             //printf("%5d, %0.4e,  %0.4e\n", n, e[0], w[0]);
@@ -223,9 +225,16 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
         n++;
     }
 
+    /*Last "safeguard synchronisation before end of the program"*/
+    cudaDeviceSynchronize();
+
+    /*Clean-up*/
     cudaFree(vp);
     cudaFree(w_device);
     cudaFree(e_device);
+
+    cudaFree(sum_temp_storage);
+    cudaFree(max_temp_storage);
 
     double e_local = e[0];
     cudaFree(e);

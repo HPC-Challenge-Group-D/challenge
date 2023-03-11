@@ -4,16 +4,8 @@
  * Also the system parameters for the execution are set here
  */
 #pragma once
+
 #include <mpi.h>
-
-/*
- * Define the directions for the MPI Cartesian communication
- */
-#define NORTH 0
-#define EAST 1
-#define SOUTH 2
-#define WEST 3
-
 /*
  * Define execution parameters
  */
@@ -27,6 +19,15 @@
 #define EPS 1e-5
 
 #define INTERVAL_ERROR_CHECK 100
+
+/*
+ * Define the directions for the MPI Cartesian communication
+ */
+#define NORTH 0
+#define EAST 1
+#define SOUTH 2
+#define WEST 3
+
 
 /*
  * Process info struct storing all relevant information for the current process.

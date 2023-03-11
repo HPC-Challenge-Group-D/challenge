@@ -94,7 +94,7 @@ __global__ void deviceReduceKernelMax(double *in, double* out, int N) {
 }
 
 
-extern "C" void deviceReduce(double *in, double* out, int N) {
+void deviceReduce(double *in, double* out, int N) {
     int threads = 512;
     int blocks = min((N + threads - 1) / threads, 1024);
 
@@ -102,7 +102,7 @@ extern "C" void deviceReduce(double *in, double* out, int N) {
     deviceReduceKernel<<<1, 1024>>>(out, out, blocks);
 }
 
-extern "C" void deviceReduceMax(double *in, double* out, int N) {
+void deviceReduceMax(double *in, double* out, int N) {
     int threads = 512;
     int blocks = min((N + threads - 1) / threads, 1024);
 

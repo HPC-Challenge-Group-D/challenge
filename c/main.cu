@@ -1,3 +1,7 @@
+//
+// Created by Patrik Rac on 10.03.23.
+//
+
 /*
  * Copyright (c) 2021, Dirk Pleiter, KTH
  *
@@ -26,33 +30,32 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Pure CUDA version of the Jacobi solver
+ * Code runs on single GPU and is used to analyze the behavior and of
+ * the program in this setting.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
 
-#include <mpi.h>
-
 #include "proc_info.h"
 
-#include "jacobi.h"
-#include "init.h"
-#include "reduction.h"
+/*External solver function*/
+int solver(double *, double *, int, int, double, int, struct proc_info*);
 
-/*
- * Parallel solver
- */
-int solver(double *, double *, double *, int, int, double, int, struct proc_info *);
-
-/*
- * Helper function that calculates the optimal partitioning of processes for the current domain.
- * Takes into account the xy-ration of the domain of the problem to place processes.
- */
+/*Internal helper functions*/
+void initDevice();
 static int computeOptimalPartitioning(int nx, int ny, int size);
-
+void initHost(double *, double *, int, int, int, int);
 
 int main()
 {
+    /*Set the appropriate device before the call to MPI_init()*/
+    initDevice();
+
     /*
      * Setup Phase
      */
@@ -77,6 +80,7 @@ int main()
     if(proc.rank == 0)
     {
         printf("Running MPI-CUDA with %d processes\n", proc.size);
+        fflush(stdout);
     }
 
     /*Get the ranks of the neighboring processes in all directions*/
@@ -113,62 +117,107 @@ int main()
 
     MPI_Type_vector(local_ny-2, 1, local_nx, MPI_DOUBLE, &proc.column);
     MPI_Type_commit(&proc.column);
-
     /*
      * End of setup phase
      */
 
+    /*Allocate grid and data on the Device*/
     double *v;
     double *f;
-    double *vp;
 
     // Allocate memory
-    //v = (double *) malloc(local_nx * local_ny * sizeof(double));
-    //f = (double *) malloc(local_nx * local_ny * sizeof(double));
+    cudaMalloc(&v, local_nx * local_ny * sizeof(double));
+    cudaMalloc(&f, local_nx * local_ny * sizeof(double));
 
-    //Allocate memory on the device
-    prepareDataMemory(&v, &vp, &f, local_nx, local_ny, x_offset, y_offset);
+    // Initialise data
+    initHost(v,f, local_nx, local_ny, x_offset, y_offset);
 
     /*Start timer*/
     struct timespec ts;
     double start, end;
-    if(proc.rank == 0)
-    {
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        start = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
-    }
 
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    start = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
 
     // Call solver
-    solver(v, vp, f, local_nx, local_ny, EPS, NMAX, &proc);
+    solver(v, f, local_nx, local_ny, EPS, NMAX, &proc);
 
-
-    /*End timer*/
-    if(proc.rank == 0)
-    {
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        end = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
-        printf("Execution time: %f s\n", end-start);
-    }
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    end = (double)ts.tv_sec + (double)ts.tv_nsec * 1.e-9;
+    printf("Execution time: %f s\n", end-start);
 
     //for (int iy = 0; iy < NY; iy++)
     //    for (int ix = 0; ix < NX; ix++)
     //        printf("%d,%d,%e\n", ix, iy, v[iy*NX+ix]);
 
     // Clean-up
-    freeDataMemory(&v, &vp, &f);
-
-    MPI_Type_free(&proc.row);
-    MPI_Type_free(&proc.column);
-    MPI_Finalize();
+    cudaFree(v);
+    cudaFree(f);
 
     return 0;
 }
 
+/*
+ * Kernel funcition to initialize the
+ */
+__global__
+void initKernel(double *v, double *f, int nx, int ny, int offset_x, int offset_y)
+{
+    int ixx = threadIdx.x + blockIdx.x * blockDim.x;
+    int sx = blockDim.x * gridDim.x;
+
+    int iyy = threadIdx.y + blockIdx.y * blockDim.y;
+    int sy = blockDim.y * gridDim.y;
+
+    // Initialise input
+    for (int iy = iyy; iy < ny; iy+=sy)
+        for (int ix = ixx; ix < nx; ix+=sx)
+        {
+            v[nx*iy+ix] = 0.0;
+
+            const double x = 2.0 * (ix+offset_x) / (NX - 1.0) - 1.0;
+            const double y = 2.0 * (iy+offset_y) / (NY - 1.0) - 1.0;
+            f[nx*iy+ix] = sin(x + y);
+        }
+}
+
+
+void initHost(double *v, double *f, int nx, int ny, int offset_x, int offset_y)
+{
+    dim3 threadsPerBlock;
+    dim3 numberOfBlocks;
+
+    threadsPerBlock = dim3(16, 16);
+    numberOfBlocks = dim3(8,8);
+
+    initKernel<<<numberOfBlocks, threadsPerBlock>>>(v, f, nx, ny, offset_x, offset_y);
+}
+
+void initDevice()
+{
+    char * localRankStr = NULL;
+    int local_rank = 0;
+    int deviceCount = 0;
+
+    // We extract the local rank initialization using an environment variable
+    if ((localRankStr = getenv("SLURM_LOCALID")) != NULL)
+    {
+        local_rank = atoi(localRankStr);
+    }
+    else
+    {
+        printf("Could not determine the appropriate local rank!\n");
+    }
+    cudaGetDeviceCount(&deviceCount);
+    printf("There are %d devices\n", deviceCount);
+    printf("Initializing with device %d\n", local_rank);
+    fflush(stdout);
+    cudaSetDevice(local_rank);
+}
 
 static int computeOptimalPartitioning(int nx, int ny, int size)
 {
-    const double xy_ratio = ((double) nx)/ny; 
+    const double xy_ratio = ((double) nx)/ny;
     double best_ratio_distance = INFINITY;
     int best_procX = 0;
     for (int d = 1; d <= size; d++)
@@ -187,102 +236,3 @@ static int computeOptimalPartitioning(int nx, int ny, int size)
     return best_procX;
 }
 
-
-int solver(double *v, double *vp, double *f, int nx, int ny, double eps, int nmax, struct proc_info *proc)
-{
-    int n = 0;
-    //double e = 2. * eps;
-
-    double *w_device, *e_device;
-    double *e, *w;
-
-    unsigned int num_gpu_threads = prepareMiscMemory(&w, &e, &w_device, &e_device);
-
-    *e = 2. * eps;
-
-    while (((*e) > eps) && (n < nmax))
-    {
-
-        /*Start of computation phase*/
-        jacobiStep(vp, v, f, nx, ny, e_device, w_device);
-        sync();
-        /*End of computation phase*/
-
-        /*Communication Phase*/
-        //TODO: Maybe optimize here...
-
-        MPI_Sendrecv(&v[nx*(ny-2)+1], 1, proc->row, proc->neighbors[NORTH], 0,
-                     &v[1], 1, proc->row, proc->neighbors[SOUTH], 0, proc->cartcomm, MPI_STATUS_IGNORE);
-
-        MPI_Sendrecv(&v[nx*1 + 1], 1, proc->row, proc->neighbors[SOUTH], 0,
-                     &v[nx*(ny-1) + 1], 1, proc->row, proc->neighbors[NORTH], 0, proc->cartcomm, MPI_STATUS_IGNORE);
-
-        MPI_Sendrecv(&v[nx*2 - 2], 1, proc->column, proc->neighbors[EAST], 0,
-                     &v[nx], 1, proc->column, proc->neighbors[WEST], 0, proc->cartcomm, MPI_STATUS_IGNORE);
-
-        MPI_Sendrecv(&v[nx+1], 1, proc->column, proc->neighbors[WEST], 0,
-                     &v[nx*2 - 1], 1, proc->column, proc->neighbors[EAST], 0, proc->cartcomm, MPI_STATUS_IGNORE);
-
-        /*End of communication phase*/
-        if(n % INTERVAL_ERROR_CHECK == 0)
-        {
-            *w = 0;
-            *e = 0;
-            /*Compute weight on the boundary*/
-            if (proc->coords[0] == 0)
-            {
-                weightBoundary_x(v,nx,ny,w_device,0);
-            }
-
-            if(proc->coords[0] == proc->dims[0]-1)
-            {
-                weightBoundary_x(v,nx,ny,w_device,ny-1);
-            }
-
-            if(proc->coords[1] == 0)
-            {
-                weightBoundary_y(v,nx,ny,w_device,0);
-            }
-
-            if(proc->coords[1] == proc->dims[1]-1)
-            {
-                weightBoundary_y(v,nx,ny,w_device,nx-1);
-            }
-
-            deviceReduce(w_device, w, num_gpu_threads);
-            deviceReduceMax(e_device, e, num_gpu_threads);
-            sync();
-
-            MPI_Allreduce(MPI_IN_PLACE, e, 1, MPI_DOUBLE, MPI_MAX, proc->cartcomm);
-            MPI_Allreduce(MPI_IN_PLACE, w, 1, MPI_DOUBLE, MPI_SUM, proc->cartcomm);
-
-            *w /= (NX * NY);
-            *e /= *w;
-        }
-        /*
-        if(proc->rank == 0)
-        {
-            if ((n % 10) == 0)
-                printf("%5d, %0.4e\n", n, e);
-        }*/
-        //if ((n % 10) == 0)
-        //    printf("%5d, %0.4e\n", n, e);
-
-        n++;
-    }
-
-    double e_local = *e;
-
-    freeMiscMemory(&w,&e,&w_device,&e_device);
-
-
-    if(proc->rank == 0)
-    {
-        if (e_local < eps)
-            printf("Converged after %d iterations (nx=%d, ny=%d, e=%.2e)\n", n, NX, NY, e_local);
-        else
-            printf("ERROR: Failed to converge\n");
-    }
-
-    return (e_local < eps ? 0 : 1);
-}

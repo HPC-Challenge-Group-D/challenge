@@ -1,6 +1,9 @@
 /*
-Source file handling the reduction on a single device.
-*/
+ * CUDA on device reduction
+ * File containing a simple implementation of a CUDA on device Sum and Max reduction.
+ *
+ */
+
 #include <stdlib.h>
 
 #define FULL_MASK 0xffffffff
