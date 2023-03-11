@@ -121,3 +121,9 @@ sinfo                           # get info about running jobs
 ```bash
 myquota         # check your quota
 ```
+
+On Compute-Node (GPU)
+```bash
+module load OpenMPI/4.1.4-NVHPC-22.7
+nvidia-smi topo -m         # GPU topology
+```
