@@ -57,8 +57,8 @@ int main()
     double *f;
 
     // Allocate memory
-    cudaMallocManaged(&v, NX * NY * sizeof(double));
-    cudaMallocManaged(&f, NX * NY * sizeof(double));
+    cudaMalloc(&v, NX * NY * sizeof(double));
+    cudaMalloc(&f, NX * NY * sizeof(double));
 
     // Initialise input
     initHost(v,f);

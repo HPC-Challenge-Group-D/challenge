@@ -35,7 +35,9 @@
 
 #include <cub/device/device_reduce.cuh>
 
+#ifndef INTERVAL_ERROR_CHECK
 #define INTERVAL_ERROR_CHECK 100
+#endif
 
 /*Get headers of the device reduction functions*/
 void deviceReduce(double *in, double* out, int N);
@@ -155,21 +157,21 @@ int solver(double *v, double *f, int nx, int ny, double eps, int nmax)
 
     /*Allocate memory for the secondary array vp*/
     double *vp;
-    cudaMallocManaged(&vp, nx * ny * sizeof(double));
+    cudaMalloc(&vp, nx * ny * sizeof(double));
 
     /*Set the number of blocks and number of Threads for the kernel launches*/
     dim3 threadsPerBlock;
     dim3 numberOfBlocks;
     threadsPerBlock = dim3(16, 16);
-    numberOfBlocks = dim3(8,8);
+    numberOfBlocks = dim3(16,16);
 
     /*Calculate theoretical value of total number of gpu threads*/
     const unsigned int num_gpu_threads = (numberOfBlocks.x * threadsPerBlock.x) * (numberOfBlocks.y * threadsPerBlock.y);
 
     /*Allocate local array for the errors and weights on device*/
     double *w_device, *e_device;
-    cudaMallocManaged(&w_device, num_gpu_threads*sizeof(double));
-    cudaMallocManaged(&e_device, num_gpu_threads*sizeof(double));
+    cudaMalloc(&w_device, num_gpu_threads*sizeof(double));
+    cudaMalloc(&e_device, num_gpu_threads*sizeof(double));
 
     /*Allocate memory for the resulting reduced weight and error*/
     double *e, *w;
